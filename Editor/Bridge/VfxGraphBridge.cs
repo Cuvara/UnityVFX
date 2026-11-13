@@ -33,7 +33,7 @@ namespace Cuvara.VFX.Editor.Bridge
     /// VFX Graph package it throws with a message that names this file.
     /// </para>
     /// </remarks>
-    public static class VfxGraphBridge
+    public static partial class VfxGraphBridge
     {
         /// <summary>The VFX Graph package version this file was written and verified against.</summary>
         public const string WrittenForVersion = "17.6.0";
@@ -307,20 +307,18 @@ namespace Cuvara.VFX.Editor.Bridge
             }
 
             var list = new List<object>();
-            foreach (var (field, attribute) in VFXModel.GetFields(model.GetType()))
+            foreach (var (field, attribute, instance) in UserSettings(model))
             {
-                if (!IsUserSetting(attribute))
-                    continue;
                 var entry = new Map
                 {
                     { "name", field.Name },
                     { "type", ValueTypeName(field.FieldType) },
                     { "kind", ValueKind(field.FieldType) },
                 };
-                var allowed = AllowedValues(model, field);
+                var allowed = AllowedValues(instance as VFXModel ?? model, field);
                 if (allowed != null)
                     entry.Add("allowed_values", allowed);
-                entry.Add("default", ToPlain(SafeGet(field, model), 0, null));
+                entry.Add("default", ToPlain(SafeGet(field, instance), 0, null));
                 entry.Add("visible_by_default", visible == null ? (object)null : visible.Contains(field.Name));
                 entry.Add("read_only", (attribute.visibleFlags & VFXSettingAttribute.VisibleFlags.ReadOnly) != 0);
                 list.Add(entry);
@@ -416,38 +414,7 @@ namespace Cuvara.VFX.Editor.Bridge
             if (graph == null)
                 throw new ArgumentException($"the resource at '{assetPath}' has no graph");
 
-            var ids = new Dictionary<VFXModel, string>();
-            var contexts = new List<VFXContext>();
-            var operators = new List<VFXModel>();
-            var parameters = new List<VFXParameter>();
-            var others = new List<VFXModel>();
-            foreach (var child in graph.children)
-            {
-                switch (child)
-                {
-                    case VFXContext context:
-                        ids[context] = "c" + contexts.Count;
-                        contexts.Add(context);
-                        int blockIndex = 0;
-                        foreach (var block in context.children)
-                            ids[block] = ids[context] + ".b" + blockIndex++;
-                        break;
-                    case VFXParameter parameter:
-                        ids[parameter] = "p" + parameters.Count;
-                        parameters.Add(parameter);
-                        break;
-                    case VFXOperator op:
-                        ids[op] = "o" + operators.Count;
-                        operators.Add(op);
-                        break;
-                    case null:
-                        break;
-                    default:
-                        ids[child] = "x" + others.Count;
-                        others.Add(child);
-                        break;
-                }
-            }
+            var ids = AssignIds(graph, out var contexts, out var operators, out var parameters, out var others);
 
             // Systems: one per VFXData, in the order of their first context.
             var systemIds = new Dictionary<VFXData, string>();
@@ -500,6 +467,49 @@ namespace Cuvara.VFX.Editor.Bridge
             result.Add("sticky_notes", DescribeStickyNotes(graph));
             result.Add("groups", DescribeGroups(graph, ids));
             return result;
+        }
+
+        /// <summary>
+        /// The describe ids of a graph, in the order of its children (the serialised order): contexts
+        /// <c>c0</c>, their blocks <c>c0.b0</c>, operators <c>o0</c>, parameters <c>p0</c>, other models
+        /// <c>x0</c>. <c>apply</c> addresses the nodes of an existing graph with the same ids.
+        /// </summary>
+        static Dictionary<VFXModel, string> AssignIds(VFXGraph graph, out List<VFXContext> contexts, out List<VFXModel> operators,
+            out List<VFXParameter> parameters, out List<VFXModel> others)
+        {
+            var ids = new Dictionary<VFXModel, string>();
+            contexts = new List<VFXContext>();
+            operators = new List<VFXModel>();
+            parameters = new List<VFXParameter>();
+            others = new List<VFXModel>();
+            foreach (var child in graph.children)
+            {
+                switch (child)
+                {
+                    case VFXContext context:
+                        ids[context] = "c" + contexts.Count;
+                        contexts.Add(context);
+                        int blockIndex = 0;
+                        foreach (var block in context.children)
+                            ids[block] = ids[context] + ".b" + blockIndex++;
+                        break;
+                    case VFXParameter parameter:
+                        ids[parameter] = "p" + parameters.Count;
+                        parameters.Add(parameter);
+                        break;
+                    case VFXOperator op:
+                        ids[op] = "o" + operators.Count;
+                        operators.Add(op);
+                        break;
+                    case null:
+                        break;
+                    default:
+                        ids[child] = "x" + others.Count;
+                        others.Add(child);
+                        break;
+                }
+            }
+            return ids;
         }
 
         static VFXData SafeData(VFXContext context)

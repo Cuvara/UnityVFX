@@ -13,7 +13,7 @@ namespace Cuvara.VFX.Editor.Verbs
     /// <para>Arguments: <c>filter</c> (optional, case-insensitive substring of a type name, variant name or
     /// category), <c>include_sub_variants</c> (optional, default false).</para>
     /// <para>Payload: <c>vfx_graph</c>, <c>vfx_graph_bridge</c>, <c>unity</c>, <c>recipe_schema</c>,
-    /// <c>recipe_ops</c>, <c>filter</c>, <c>counts</c>, <c>contexts</c>, <c>blocks</c>, <c>operators</c>,
+    /// <c>recipe_ops</c>, <c>recipe_op_fields</c> (required and optional fields per op), <c>filter</c>, <c>counts</c>, <c>contexts</c>, <c>blocks</c>, <c>operators</c>,
     /// <c>parameter_types</c>. Each node entry has <c>type</c> (the name a recipe uses), <c>type_full</c>,
     /// <c>name</c>, <c>category</c>, <c>variant</c> (<c>id</c> and the <c>settings</c> that make it),
     /// <c>settings</c> (name, type, kind, allowed values, default) and <c>inputs</c> / <c>outputs</c> slots
@@ -52,6 +52,17 @@ namespace Cuvara.VFX.Editor.Verbs
             result.Set("unity", Application.unityVersion);
             result.Set("recipe_schema", VfxRecipeOps.Schema);
             result.Set("recipe_ops", VfxRecipeOps.Names.ToList());
+            var opFields = new JsonObject();
+            foreach (var spec in VfxRecipeOps.Specs)
+            {
+                opFields.Add(spec.Name, new JsonObject
+                {
+                    { "required", spec.Required.Cast<object>().ToList() },
+                    { "optional", spec.Optional.Cast<object>().ToList() },
+                    { "summary", spec.Summary },
+                });
+            }
+            result.Set("recipe_op_fields", opFields);
             result.Set("filter", filter);
             result.Set("counts", new JsonObject
             {

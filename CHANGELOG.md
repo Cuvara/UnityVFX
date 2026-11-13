@@ -58,6 +58,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   temporary copy of VFX Graph's Simple Burst template.
 - `Documentation~/AUTHORING.md`: the agent interface, what Unity's sample graphs show about systems,
   spawning, attributes, colour over life and blend modes, and new pitfalls.
+- Recipe builder and the verbs `build` (recipe path) and `apply` (asset and ops): the ops
+  `add_parameter`, `add_context`, `add_block`, `add_operator`, `set_setting`, `set_slot`,
+  `link_slots`, `link_flow`, `use_subgraph`, `set_output` and `comment`, with recipe-local ids,
+  slot addresses `<id>.<slot path>` (`#<index>` for unnamed slots, `out` for a single output),
+  catalog type names with an optional catalog variant id, and asset references by project-relative
+  path. An unknown op, field, id, type, variant, setting, slot or enum value fails with the op index
+  and the valid names, nearest first (`op_error`). The graph is built on a temporary copy, compiled
+  (in-memory compile, per-node errors, import with logged errors, generated shader messages) and
+  copied over the real `.vfx` only when clean, keeping its GUID; a failed build leaves the previous
+  asset byte-identical. The result reports compile errors, the capacity per system and
+  `describe_sha256`; two builds of a recipe describe to the same JSON.
+- Bridge write primitives (`VfxGraphBridge.GraphEdit`, `CompileReport`, `Systems`,
+  `NearestFirst`, `EditException`): create a graph with VFX Graph's own `CreateNewAsset`, add
+  nodes by catalog name and variant, set settings and slot values (numbers, enums, vectors, HDR
+  colours, gradients, curves, VFX structs, assets), link slots and flow, add subgraphs and sticky
+  notes, save with `WriteAssetWithSubAssets`. No `.vfx` text is written or patched.
+- `Schemas~/vfx-recipe.schema.json` (`cuvara.vfx-recipe/1`) and the fixture
+  `Tests/Fixtures/BurstQuads` (`BurstQuads.vfxrecipe.json` and the `BurstQuads.vfx` it builds: one
+  burst of 24 additive quads with a colour over life and an exposed `Tint` colour).
+- `catalog` prints `recipe_op_fields` (required and optional fields per op).
+- EditMode tests: recipe round trip and determinism, unknown names (block type, setting, slot, op,
+  id, variant) leaving the previous asset byte-identical, `apply` on describe ids, the recipe schema
+  against the fixture and against the builder's op list (with a small JSON Schema validator).
+
+### Changed
+
+- `catalog` lists the settings a model forwards (Initialize: `capacity`, `boundsMode` and the
+  other data settings; composed outputs: their topology and shading settings) through
+  `VFXModel.GetSettings`, the same list `set_setting` accepts.
+- `describe` also takes an absolute path inside a local package of the project (the repository
+  path of this package).
 
 ### Fixed
 

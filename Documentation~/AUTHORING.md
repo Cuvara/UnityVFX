@@ -196,13 +196,133 @@ assets are under the Unity Companion License: never copy them into this reposito
   `useSoftParticle`, `sort`, `cullMode`, `zWriteMode`, `zTestMode` and `useAlphaClipping` sit next
   to it. The texture is the output input `mainTexture` (unlit) or `baseColorMap` (URP Lit); the
   default is `White1px` from `com.unity.render-pipelines.core`.
-- **Additive quads** (the fixture of the next subtask): `VFXPlanarPrimitiveOutput` with
+- **Additive quads** (the fixture `Tests/Fixtures/BurstQuads`): `VFXPlanarPrimitiveOutput` with
   `primitiveType` `Quad` and `blendMode` `Additive` (15 in the samples), most often with an
   `Orient` block in `mode` `FaceCameraPlane` (6 of 15; 3 had no `Orient` block).
 - **Exposed parameters** are `VFXParameter` nodes (`exposed` true, `exposed_name`) whose output
   slot `o` links into inputs (`p0.o -> o2.PositionMap`). Built-in values come from operators such
   as `VFXDynamicBuiltInParameter` (`Delta Time (VFX)`) and `VFXAttributeParameter`
   (`Get|_Position|Current`).
+
+## Recipe: build and apply
+
+A recipe (`<Name>.vfxrecipe.json`, schema `Schemas~/vfx-recipe.schema.json`, id
+`cuvara.vfx-recipe/1`) is the source of truth of an effect; `build` turns it into `<Name>.vfx` in
+the same folder. The worked example is the fixture
+`Tests/Fixtures/BurstQuads/BurstQuads.vfxrecipe.json` (one burst of 24 additive quads, lifetime
+0.6 to 0.9 s, capacity 32, colour over life, one exposed colour `Tint`).
+
+```sh
+python Tools~/vfxcli.py build --json '{"recipe": "Packages/com.cuvara.vfx/Tests/Fixtures/BurstQuads/BurstQuads.vfxrecipe.json"}'
+python Tools~/vfxcli.py build --json '{"recipe": "C:/Workspaces/UnityIndie/UnityVFX/Effects/Spark/Spark.vfxrecipe.json"}'
+python Tools~/vfxcli.py apply --args ops.json   # {"asset": "...", "ops": [...]}
+```
+
+Paths are project-relative (`Assets/...`, `Packages/com.cuvara.vfx/...`) or absolute. An absolute
+path inside the repository resolves through the package (the nearest `package.json` that names a
+registered package), so the repository path and the `<sandbox home>/package` path both work. A path
+relative to the shell's current directory does not (see Pitfalls).
+
+### Top level
+
+| Field | Required | Meaning |
+|---|---|---|
+| `schema` | yes | `"cuvara.vfx-recipe/1"`; anything else is an error before any op runs |
+| `id` | yes | effect id, kebab-case (`chain-lightning`) |
+| `vfx_graph` | no | the VFX Graph major.minor the recipe was written for; another installed major.minor is a warning |
+| `meta` | no | `duration_seconds`, `looping`, `tags`, `phases` (`name`, `seconds`); not read by `build`, kept for capture and lint |
+| `ops` | yes | the ops, run in order |
+
+An unknown top-level field is an error.
+
+### Ids and slot addresses
+
+- Every node an op creates has a recipe-local `id`: `^[A-Za-z_][A-Za-z0-9_-]*$`, unique in the
+  recipe. Blocks have ids of their own (`burst`, not `spawn.burst`).
+- `apply` starts with the ids `describe` prints for the existing graph (`c0`, `c0.b1`, `o2`, `p0`);
+  new nodes use the ids their ops give, which may not reuse one.
+- A slot is `<id>.<slot path>`: the master slot name, then member names, joined with dots
+  (`init.bounds.center`, `burst.Count`, `tint._Color`). A slot without a name (the output of `Add`,
+  `Multiply` and other math operators) is `#<index>` (`o0.#0`), as in `describe`. `<id>.out` is
+  the only output of a node that has exactly one (a parameter's `o`, an operator's `#0`); a slot
+  really named `out` wins. Indices are never used for named slots.
+- `link_slots` takes `from` among output slots and `to` among input slots; `set_slot` and the
+  `slots` map address input slots, or the value of a parameter.
+
+### Ops
+
+Names, fields and one-line summaries are also printed by `catalog` (`recipe_ops`,
+`recipe_op_fields`). An unknown op, field, id, type, variant, setting, slot or enum value is an
+error that names the op index and lists the valid names, nearest first (`op 3 (add_block 'burst'):
+unknown block type 'VFXSpawnerBurstt'; valid block types (nearest first): VFXSpawnerBurst, ...`);
+the result also carries `op_error` (`index`, `op`, `message`, `valid_names`). The first failing op
+stops the build.
+
+| Op | Required | Optional | Does |
+|---|---|---|---|
+| `add_parameter` | `id`, `type`, `name` | `value`, `exposed` (default true), `category`, `tooltip` | a parameter of a catalog parameter type, by its `name` (`Color`, `Vector 3`) or `type` (`Vector3`); `name` is the exposed name |
+| `add_context` | `id`, `type` | `variant`, `label`, `settings`, `slots` | a context |
+| `add_block` | `id`, `context`, `type` | `variant`, `settings`, `slots` | a block at the end of `context` |
+| `add_operator` | `id`, `type` | `variant`, `settings`, `slots` | an operator |
+| `set_setting` | `node`, `name`, `value` | | one setting |
+| `set_slot` | `slot` | `value`, `space` (`None`, `Local`, `World`) | an input slot value or space, or a parameter value |
+| `link_slots` | `from`, `to` | | output slot to input slot |
+| `link_flow` | `from`, `to` | `from_slot`, `to_slot` (default 0) | flow from one context to the next |
+| `use_subgraph` | `id`, `asset` | `context`, `settings`, `slots` | `.vfx` gives a subgraph context, `.vfxoperator` an operator, `.vfxblock` a block in `context` |
+| `set_output` | `node` | `texture`, `blend_mode`, `color_mapping`, `gradient` | `blendMode` and `colorMapping` settings, the `mainTexture` (or `baseColorMap`) input, the `gradient` input of `GradientMapped` |
+| `comment` | `text` | `title` | a sticky note |
+
+- **`type`** is the catalog `type` (`VFXSpawnerBurst`) or `type_full`. **`variant`** is a catalog
+  `variant.id` (`Spawn/Single Burst`, `Context/#2Output Basic/Output Particle|Unlit|Quad`): the node
+  is created as the graph window creates it from that menu entry. Without `variant`, a type with
+  one catalog entry uses that entry, and a type with several entries (`SetAttribute`,
+  `AttributeFromCurve`) is created with its field defaults; then `settings` choose the attribute.
+  Use `variant` for nodes whose variant setting is not JSON (`VFXInlineOperator`).
+- **`settings`** and **`slots`** are maps applied in order, settings first, after the node is in
+  the graph. Setting names are the catalog's; settings that a context forwards (Initialize:
+  `capacity`, `boundsMode`, `dataType` live on the system's data) are listed and set on the context.
+  A setting can change the slots (`attribute` turns `_Lifetime` into `_Color`; `Random` turns the
+  input into `A` and `B`), so set it before the slots.
+- **Data settings follow the flow.** A flow link from Initialize hands Initialize's data to Update
+  and the outputs (`VFXContext.InnerLink`), so set `capacity` and `boundsMode` on the Initialize
+  context.
+- **Values:** numbers, booleans and strings as JSON; enums by name (flags as `"A, B"` or a list);
+  `Vector2/3/4` as arrays; `Color` as `[r, g, b]` or `[r, g, b, a]` (HDR values above 1 allowed);
+  `Gradient` as `{"mode", "color_space", "color_keys": [{"t", "color"}], "alpha_keys": [{"t",
+  "alpha"}]}` (the `describe` form, at most 8 keys each); `AnimationCurve` as `[[t, v], ...]` with
+  linear tangents or `{"keys": [{"time", "value", "in_tangent", "out_tangent", ...}], "pre_wrap",
+  "post_wrap"}`; VFX structs (`Position`, `Vector`, `DirectionType`, `AABox`, `Sphere`) as objects
+  of their fields (`{"center": [0, 1, 0], "size": [4, 4, 4]}`), and a struct with one field
+  (`Position.position`, `Vector.vector`) also as that field's value (`[0, 1, 0]`). A map changes
+  only the fields it names.
+- **Asset references** are project-relative paths (or `{"guid": "..."}`); the builder loads the
+  asset and the graph stores its GUID. A missing asset is an error.
+
+### What `build` and `apply` do
+
+1. Check the recipe (top level, then each op's name and fields).
+2. Create the graph in `Assets/CuvaraVfxBuildTemp/<Name>.vfx` with VFX Graph's
+   `VisualEffectAssetEditorUtility.CreateNewAsset` (`apply`: copy the asset there with
+   `AssetDatabase.CopyAsset`).
+3. Run the ops through `VfxGraphBridge.GraphEdit` (`VFXModel.AddChild`, `SetSettingValue`,
+   `VFXSlot.value`, `VFXSlot.Link`, `VFXContext.LinkTo`), place the new nodes, give each parameter
+   its graph node, and write the file with `VisualEffectResource.WriteAssetWithSubAssets`. No `.vfx`
+   text is written or patched.
+4. Compile (`VfxGraphBridge.CompileReport`): the in-memory compile the graph window makes
+   (`VFXGraph.Compile`), the errors VFX Graph reports per node, a re-import of the copy (which
+   generates the shaders) with every error logged meanwhile, and the error messages of the
+   generated shaders. Any error stops here; the real asset has not been touched.
+5. Copy the compiled file over `<Name>.vfx` and re-import it. Its `.meta` is not written, so its
+   GUID stays the same (`guid_stable`). The temporary folder is deleted in every case.
+
+Result payload: `recipe`, `recipe_sha256`, `recipe_id` (build only), `asset` (`path`, `guid`),
+`ops_applied`, `compile_errors`, `created`, `guid_stable`, `previous_sha256`, `sha256`,
+`describe_sha256` (SHA-256 of the compact JSON `VfxCli.Run("describe")` returns for the asset) and
+`systems` (`id`, `name`, `data_type`, `capacity`). Compile warnings become warnings of the result.
+
+A recipe is deterministic in its graph, not in its bytes: two builds gave the same
+`describe_sha256` (`1224b507...`, twice) and different `.vfx` SHA-256 (see Pitfalls). Compare
+`describe` output, not file hashes.
 
 ## Pitfalls
 
@@ -364,10 +484,97 @@ Each entry is a verified failure: symptom, cause, fix, file.
 - **Cause:** `VFXModel.GetSettings(false, ...)` evaluates `filteredOutSettings`; `ScreenSpaceSize`
   reads `GetData()` of its parent context there, and the instance cached by `VFXLibrary` has no
   parent.
-- **Fix:** the bridge lists settings from `VFXModel.GetFields(type)` (every field with
-  `VFXSetting` visible in the inspector or the graph) and computes `visible_by_default` in a
-  `try`; when it throws, `visible_by_default` is null. Catalog then has 135 blocks and no warning.
-- **File:** `Editor/Bridge/VfxGraphBridge.cs` (`CatalogSettings`).
+- **Fix:** the bridge lists settings with `VFXModel.GetSettings(true)` (every `VFXSetting` field
+  the model shows or forwards, filtered to those visible in the inspector or the graph) and falls
+  back to `VFXModel.GetFields(type)` when that throws; `visible_by_default` is computed in a `try`
+  and is null when it throws. Catalog then has 135 blocks and no warning (verified again after the
+  next entry's change).
+- **File:** `Editor/Bridge/VfxGraphBridge.cs` (`CatalogSettings`), `Editor/Bridge/VfxGraphBridge.Edit.cs`
+  (`UserSettings`).
+
+### Catalog listed no settings for Initialize although `capacity` is set there
+
+- **Symptom:** `catalog` printed `"settings": []` for both `VFXBasicInitialize` variants, while the
+  graph window shows `capacity` and `boundsMode` on Initialize and `describe` shows them under the
+  system. A recipe could not learn the names it has to use on the Initialize context.
+- **Cause:** `VFXBasicInitialize.GetSetting` and `GetSettings` forward to its `VFXData`; rendered
+  outputs forward to their render-pipeline sub-output, and composed (Shader Graph) outputs replace
+  some base settings with those of their topology and shading. `VFXModel.GetFields(type)` sees only
+  the model's own fields.
+- **Fix:** catalog and the builder use the same list (`UserSettings`: `GetSettings(true)`, then the
+  fields as a fallback). Initialize now lists `dataType`, `capacity`, `stripCapacity`,
+  `particlePerStripCount`, `boundsMode`; 5 of 396 catalog entries changed (two Initialize, three
+  composed outputs, which no longer list the `blendMode` family their Shader Graph decides).
+  `set_setting` on Initialize sets the data (`describe`: system `s1` `capacity` 32).
+- **File:** `Editor/Bridge/VfxGraphBridge.Edit.cs` (`UserSettings`).
+
+### The default bounds mode warns on every build
+
+- **Symptom:** the first build of BurstQuads succeeded with the warning `compile: c1
+  (VFXBasicInitialize): In order to record the bounds, the current graph needs to be attached to a
+  scene instance via the Target Game Object panel`.
+- **Cause:** a new Initialize context has `boundsMode` `Recorded`, which expects bounds recorded in
+  the graph window.
+- **Fix:** set `boundsMode` to `Manual` and give `bounds` (`center`, `size`), or `Automatic`, in the
+  recipe. BurstQuads uses `Manual` with a 4 m box; later builds had no warning.
+- **File:** `Tests/Fixtures/BurstQuads/BurstQuads.vfxrecipe.json`.
+
+### Two builds of the same recipe give different `.vfx` bytes
+
+- **Symptom:** three builds of the unchanged BurstQuads recipe wrote `.vfx` files with the SHA-256
+  `421f1d66...`, `aa4728e2...`, `7c26acdb...`, while `describe_sha256` of the last two was the same
+  (`a1e11d66...`).
+- **Cause:** the graph's nodes are sub-assets of the `.vfx`; Unity gives every newly created
+  sub-asset a new local file id when the asset is written. The graph is the same; the ids in the
+  YAML are not.
+- **Fix:** compare graphs with `describe` (`describe_sha256` of the result), never with the file
+  hash. Rebuild a committed `.vfx` only when its recipe changed, so its diff stays meaningful.
+- **File:** `Editor/Recipe/VfxRecipeBuilder.cs` (`describe_sha256`).
+
+### A path relative to the repository is not found
+
+- **Symptom:** `vfxcli.py build --json '{"recipe": "Tests/Fixtures/BurstQuads/BurstQuads.vfxrecipe.json"}'`
+  from the repository root failed with `recipe '...' is not inside the project or a package of it`.
+- **Cause:** the verb runs inside the editor, whose current directory is the Sandbox project, and a
+  relative path is read as project-relative (`Assets/...`, `Packages/...`).
+- **Fix:** pass `Packages/com.cuvara.vfx/<path in the repository>` or an absolute path.
+- **File:** `Editor/Recipe/VfxProjectPaths.cs`.
+
+### A `VisualEffect` made by a script in edit mode does not simulate
+
+- **Symptom:** in the Sandbox editor in edit mode, a `VisualEffect` with BurstQuads created from
+  `script-execute`, `Reinit()`, then `Simulate(1/60, 5)` and a camera render per call over five
+  calls: `aliveParticleCount` 0, `HasAnySystemAwake()` false, `culled` true. The first attempt with
+  `Camera.Render()` into an `ARGBHalf` render texture read back near black (largest r+g+b 0.016
+  for a 0.05/0.05/0.08 background; cause not established); `RenderPipeline.SubmitRenderRequest`
+  with a `StandardRequest` rendered the scene (a test cube showed).
+- **Cause:** not established; the effect never left the culled state in edit mode.
+- **Fix:** look at an effect in play mode (next entry). Render with `SubmitRenderRequest` and a
+  `StandardRequest` into a render texture. Objects made for a check get `HideFlags.DontSave` in
+  edit mode and are destroyed afterwards; an untitled scene cannot take an additive new scene
+  (`Cannot create a new scene additively with an untitled scene unsaved`).
+- **File:** none (workflow; the capture verb owns the real procedure).
+
+### Play mode in an unfocused Sandbox editor does not advance
+
+- **Symptom:** after `EditorApplication.EnterPlaymode()` from `script-execute`, `Time.frameCount`
+  stayed 1 and `Time.time` 0 for more than 2 s; the effect stayed culled with no particle.
+- **Cause:** the editor window has no focus (`Application.isFocused` false) and
+  `Application.runInBackground` was false, so the player loop did not run.
+- **Fix:** set `Application.runInBackground = true` in play mode: 2 s later `Time.frameCount` was
+  543. `PlayerSettings.runInBackground` stayed `False` after leaving play mode, so the project is
+  not changed. With it, BurstQuads showed 24 alive particles about 0.3 s after `Reinit()`, a spread
+  of orange additive quads in the render, and 0 after its lifetime.
+- **File:** none (workflow).
+
+### `Random` `Uniform` on a vector attribute puts particles on a line
+
+- **Symptom:** BurstQuads with velocity `SetAttribute` `Random` `Uniform` between `A` [-1.5, 0.5,
+  -1.5] and `B` [1.5, 2.5, 1.5] rendered as one diagonal streak.
+- **Cause:** `Uniform` draws one random number per particle and lerps every component with it,
+  so all velocities lie on the segment from `A` to `B`. `PerComponent` draws one per component.
+- **Fix:** `PerComponent` for a spread in a box; BurstQuads uses it.
+- **File:** `Tests/Fixtures/BurstQuads/BurstQuads.vfxrecipe.json`.
 
 ### `vfxcli.py` crashed printing the catalog on a Windows console
 
@@ -421,3 +628,9 @@ Each entry is a verified failure: symptom, cause, fix, file.
 - NUnit in the Test Framework 1.8: `Is.Ordered.Using(StringComparer.Ordinal)` does not compile
   (`CS0121`, ambiguous between `Using(IComparer)` and `Using<T>(IComparer<T>)`); cast to
   `IComparer<string>`.
+- Gradient key times come back quantised: a key written at `t` 0.5 is described as 0.5000076, and
+  0.7 as 0.7000076 (Unity stores gradient key times in 16 bits). Two builds still describe equal.
+- A `Color` parameter links to the `Vector3` input `_Color` of a `SetAttribute` `color` block
+  (`p0.o -> c3.b1._Color` in BurstQuads) and the graph compiles.
+- `build` fails on any error logged during its compile and import, also one from another source,
+  so a busy editor can fail a clean graph; the log line is in the errors with the prefix `log:`.

@@ -10,7 +10,7 @@ namespace Cuvara.VFX.Editor.Verbs
     /// </summary>
     /// <remarks>
     /// <para>Arguments: <c>asset</c> (required): a project-relative path (<c>Assets/...</c> or
-    /// <c>Packages/...</c>) or an absolute path inside the project's <c>Assets</c> folder.</para>
+    /// <c>Packages/...</c>) or an absolute path inside the project or a local package of it.</para>
     /// <para>Payload: <c>schema</c>, <c>asset</c> (path and GUID), <c>asset_kind</c>, <c>vfx_graph</c>,
     /// <c>graph_version</c>, <c>contexts</c> (with their <c>blocks</c>), <c>operators</c>,
     /// <c>parameters</c>, <c>other_models</c>, <c>links</c>, <c>flow_links</c>, <c>systems</c>,
@@ -45,6 +45,9 @@ namespace Cuvara.VFX.Editor.Verbs
         /// <summary>Maps an absolute path inside the project to a project-relative one; other paths are returned with forward slashes.</summary>
         internal static string ToProjectPath(string path)
         {
+            var mapped = VfxProjectPaths.ToProjectPath(path);
+            if (mapped != null)
+                return mapped;
             var normalized = path.Replace('\\', '/');
             if (!Path.IsPathRooted(path))
                 return normalized;
