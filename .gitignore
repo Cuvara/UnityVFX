@@ -1,0 +1,62 @@
+# Unity meta files are intentionally tracked in a UPM package.
+
+# Sandbox~ is an agent-owned Unity project. Its generated folders are never committed.
+# These are anchored on purpose: the package's own root Library/ folder holds shared assets
+# (see Documentation~/DESIGN.md) and must stay tracked.
+/Sandbox~/Library/
+/Sandbox~/Temp/
+/Sandbox~/Logs/
+/Sandbox~/UserSettings/
+/Sandbox~/Captures/
+/Sandbox~/obj/
+/Sandbox~/Build/
+/Sandbox~/Builds/
+/Sandbox~/MemoryCaptures/
+/Sandbox~/Recordings/
+/Sandbox~/*.csproj
+/Sandbox~/*.sln
+/Sandbox~/*.slnx
+/Sandbox~/*.user
+
+# Directory junction (Windows) or symlink created by Tools~/setup-sandbox.py. The sample has one
+# copy under Samples~/Showcase, and its .meta files are committed there.
+/Sandbox~/Assets/Showcase
+/Sandbox~/Assets/Showcase.meta
+
+# Capture and batch-mode output
+Captures/
+vfx-out/
+*.log
+
+# Generated solution / project files
+*.csproj
+*.unityproj
+*.sln
+*.slnx
+*.suo
+*.user
+*.userprefs
+*.pidb
+*.booproj
+*.svd
+*.opendb
+*.VC.db
+obj/
+.vs/
+.idea/
+.vscode/
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Crash / profiler dumps
+sysinfo.txt
+crashlytics-build.properties
+*.stackdump

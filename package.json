@@ -1,0 +1,27 @@
+{
+  "name": "com.cuvara.vfx",
+  "version": "0.1.0",
+  "displayName": "Cuvara VFX",
+  "description": "Agent-driven VFX Graph authoring for Unity: build a visual effect from a JSON recipe, describe and inspect any graph, import generated textures deterministically, and capture a reproducible contact sheet and stats file for review. The package is the mechanism; style and budgets live with the project that consumes it.",
+  "unity": "6000.6",
+  "documentationUrl": "",
+  "license": "MIT",
+  "keywords": [
+    "vfx",
+    "visualeffectgraph",
+    "particles",
+    "urp",
+    "editor-automation"
+  ],
+  "author": {
+    "name": "Cuvara",
+    "email": "duycuong2k3@gmail.com"
+  },
+  "dependencies": {
+    "com.unity.visualeffectgraph": "17.6.0",
+    "com.unity.render-pipelines.universal": "17.6.0"
+  },
+  "testables": [
+    "com.cuvara.vfx"
+  ]
+}

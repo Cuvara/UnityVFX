@@ -1,0 +1,192 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  checks: write
+
+env:
+  UNITY_VERSION: 6000.6.9f1
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Licence-free validation. Needs no Unity, no GPU and no secret, so it runs on every push
+  # and every pull request, including forks. Each step is one script under .github/scripts/
+  # that also runs locally: see Documentation~/CI.md.
+  # ---------------------------------------------------------------------------
+  validate:
+    name: Validate package
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install validation dependencies
+        run: python -m pip install --disable-pip-version-check jsonschema pyyaml
+
+      - name: package.json fields and versions
+        run: python .github/scripts/check_package_json.py
+
+      # The heading is what release tooling and the package's consumers read.
+      - name: CHANGELOG has an [Unreleased] heading
+        run: python .github/scripts/check_changelog.py
+
+      # A missing .meta does not fail a build and does not show in this repository's test
+      # results. Unity logs an Error and the test framework turns it into an exception, which
+      # fails a consumer's whole suite. An orphan .meta is an error as well.
+      - name: Every Unity-visible file and folder has a .meta
+        run: python .github/scripts/check_metas.py
+
+      - name: asmdef names
+        run: python .github/scripts/check_asmdefs.py
+
+      # Passes while Schemas~/vfx-recipe.schema.json or the recipes do not exist yet, and fails
+      # on an invalid recipe as soon as both do.
+      - name: Committed recipes match the recipe schema
+        run: python .github/scripts/check_recipes.py
+
+      - name: Workflow files parse
+        run: |
+          python - <<'PY'
+          import glob, sys, yaml
+          files = sorted(glob.glob(".github/workflows/*.yml"))
+          for path in files:
+              with open(path, encoding="utf-8") as handle:
+                  yaml.safe_load(handle)
+          print(f"{len(files)} workflow file(s) parse")
+          PY
+
+  # ---------------------------------------------------------------------------
+  # Does this repository have a Unity licence? The jobs below skip, rather than fail, when the
+  # UNITY_LICENSE secret is absent (forks, pull requests from forks, a repository that has not
+  # been given the secret yet). A secret cannot be read in a job-level `if`, so this job turns
+  # its presence into an output.
+  # ---------------------------------------------------------------------------
+  licence:
+    name: Unity licence available
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    outputs:
+      present: ${{ steps.check.outputs.present }}
+    steps:
+      - name: Check the UNITY_LICENSE secret
+        id: check
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+        run: |
+          if [ -n "$UNITY_LICENSE" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::UNITY_LICENSE is not set; the Unity test jobs are skipped."
+          fi
+
+  # ---------------------------------------------------------------------------
+  # Unity tests against Sandbox~, which references this package as file:../.. and enables it in
+  # `testables`. EditMode and PlayMode are separate jobs so a failure names the mode.
+  # ---------------------------------------------------------------------------
+  editmode:
+    name: Unity EditMode tests
+    needs: licence
+    if: needs.licence.outputs.present == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Creates the Sandbox~/Assets/Showcase link to Samples~/Showcase (gitignored).
+      - name: Prepare the Sandbox
+        run: |
+          if [ -f "Tools~/setup-sandbox.py" ]; then python "Tools~/setup-sandbox.py"; fi
+
+      - uses: actions/cache@v4
+        with:
+          path: Sandbox~/Library
+          key: Library-editmode-${{ env.UNITY_VERSION }}-${{ hashFiles('Sandbox~/Packages/manifest.json', 'package.json') }}
+          restore-keys: |
+            Library-editmode-${{ env.UNITY_VERSION }}-
+
+      - name: Run EditMode tests
+        uses: game-ci/unity-test-runner@v4.3.1
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+        with:
+          projectPath: Sandbox~
+          unityVersion: ${{ env.UNITY_VERSION }}
+          testMode: EditMode
+          githubToken: ${{ secrets.GITHUB_TOKEN }}
+          checkName: EditMode Test Results
+
+      - name: Assert tests ran and passed
+        if: always()
+        run: python .github/scripts/assert_test_results.py artifacts --label "EditMode tests"
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: editmode-results
+          path: artifacts/
+
+  playmode:
+    name: Unity PlayMode tests
+    needs: licence
+    if: needs.licence.outputs.present == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Prepare the Sandbox
+        run: |
+          if [ -f "Tools~/setup-sandbox.py" ]; then python "Tools~/setup-sandbox.py"; fi
+
+      - uses: actions/cache@v4
+        with:
+          path: Sandbox~/Library
+          key: Library-playmode-${{ env.UNITY_VERSION }}-${{ hashFiles('Sandbox~/Packages/manifest.json', 'package.json') }}
+          restore-keys: |
+            Library-playmode-${{ env.UNITY_VERSION }}-
+
+      - name: Run PlayMode tests
+        uses: game-ci/unity-test-runner@v4.3.1
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+        with:
+          projectPath: Sandbox~
+          unityVersion: ${{ env.UNITY_VERSION }}
+          testMode: PlayMode
+          githubToken: ${{ secrets.GITHUB_TOKEN }}
+          checkName: PlayMode Test Results
+
+      - name: Assert tests ran and passed
+        if: always()
+        run: python .github/scripts/assert_test_results.py artifacts --label "PlayMode tests"
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playmode-results
+          path: artifacts/
