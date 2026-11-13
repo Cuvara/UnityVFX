@@ -13,15 +13,22 @@
 /Sandbox~/Builds/
 /Sandbox~/MemoryCaptures/
 /Sandbox~/Recordings/
+/Sandbox~/ProfilerCaptures/
+/Sandbox~/.ai-game-dev/
+/Sandbox~/Assets/InitTestScene*.unity
+/Sandbox~/Assets/InitTestScene*.unity.meta
 /Sandbox~/*.csproj
 /Sandbox~/*.sln
 /Sandbox~/*.slnx
 /Sandbox~/*.user
 
-# Directory junction (Windows) or symlink created by Tools~/setup-sandbox.py. The sample has one
-# copy under Samples~/Showcase, and its .meta files are committed there.
+# Directory junctions (Windows) or symlinks created by Tools~/setup-sandbox.py. The sample has one
+# copy under Samples~/Showcase, and its .meta files are committed there. The last line is the
+# package link of the first layout (a directory cycle; setup-sandbox.py removes it as a link):
+# git must never descend into it. See Documentation~/AUTHORING.md, section "Sandbox".
 /Sandbox~/Assets/Showcase
 /Sandbox~/Assets/Showcase.meta
+/Sandbox~/Packages/com.cuvara.vfx
 
 # Capture and batch-mode output
 Captures/
