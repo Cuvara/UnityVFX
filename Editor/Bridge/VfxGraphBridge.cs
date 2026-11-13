@@ -642,6 +642,9 @@ namespace Cuvara.VFX.Editor.Bridge
                 { "node_count", parameter.nodes?.Count ?? 0 },
                 { "settings", DescribeSettings(parameter, id, warnings) },
             };
+            // Only when set, so graphs without tooltips describe as before.
+            if (!string.IsNullOrEmpty(parameter.tooltip))
+                entry.Add("tooltip", parameter.tooltip);
             if (parameter.isOutput)
                 entry.Add("inputs", DescribeInputs(parameter, id, ids, links, warnings));
             entry.Add("outputs", DescribeOutputs(parameter));

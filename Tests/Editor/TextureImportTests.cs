@@ -326,6 +326,88 @@ namespace Cuvara.VFX.Editor.Tests
             Assert.That(File.ReadAllBytes(Path.GetFullPath(Target) + ".meta"), Is.EqualTo(meta), "the .meta is untouched");
         }
 
+        /// <summary>
+        /// A failing import over an EXISTING target, at each stage: the transform check (unknown step),
+        /// a pixel step (a pack_channels file of another size), the grid check after the pixel steps
+        /// (a flipbook that does not divide the resized image), and the write of the output (a read-only
+        /// target). The PNG and its .meta have the same SHA-256 before and after.
+        /// </summary>
+        [TestCase("unknown_step", "unknown step 'premultiplied'")]
+        [TestCase("pack_file_size", "is 3x3, the image is 8x4 at this step")]
+        [TestCase("flipbook_after_resize", "does not divide into 3 columns")]
+        [TestCase("write_fails", "the target is restored")]
+        public void FailedImport_LeavesAnExistingTargetAndItsMetaWithTheSameHashes(string stage, string expectedError)
+        {
+            var source = Gradient("good.png", 8, 4);
+            TestJson.Ok("import-texture", Args(source, Target, "premultiply", Step("wrap", ("mode", "repeat"))));
+            var targetFile = Path.GetFullPath(Target);
+            var pngBefore = Hash(targetFile);
+            var metaBefore = Hash(targetFile + ".meta");
+
+            object[] steps;
+            switch (stage)
+            {
+                case "unknown_step":
+                    steps = new object[] { "premultiplied" };
+                    break;
+                case "pack_file_size":
+                    steps = new object[] { "premultiply", Step("pack_channels", ("a", new JsonObject { { "file", Gradient("small.png", 3, 3) }, { "channel", "r" } })) };
+                    break;
+                case "flipbook_after_resize":
+                    steps = new object[] { "premultiply", Step("resize_pot", ("max_size", 4L)), Step("flipbook", ("columns", 3L), ("rows", 1L)) };
+                    break;
+                default:
+                    steps = new object[] { "srgb" };
+                    break;
+            }
+
+            var attributes = File.GetAttributes(targetFile);
+            if (stage == "write_fails")
+            {
+                File.SetAttributes(targetFile, attributes | FileAttributes.ReadOnly);
+                if (CanWrite(targetFile))
+                {
+                    File.SetAttributes(targetFile, attributes);
+                    Assert.Ignore("this user can write a read-only file (root on Linux), so the write cannot be made to fail");
+                }
+            }
+
+            JsonObject result;
+            try
+            {
+                result = TestJson.Result("import-texture", Args(source, Target, steps));
+            }
+            finally
+            {
+                File.SetAttributes(targetFile, attributes);
+            }
+
+            Assert.That(result.Get("ok"), Is.EqualTo(false));
+            var errors = TestJson.Strings(result, "errors");
+            Assert.That(errors, Has.Count.EqualTo(1), string.Join(" | ", errors));
+            StringAssert.Contains(expectedError, errors[0]);
+            Assert.That(Hash(targetFile), Is.EqualTo(pngBefore), "the PNG keeps its SHA-256");
+            Assert.That(Hash(targetFile + ".meta"), Is.EqualTo(metaBefore), "the .meta keeps its SHA-256");
+            Assert.That(Importer().wrapModeU, Is.EqualTo(TextureWrapMode.Repeat), "the importer keeps the previous settings");
+        }
+
+        static bool CanWrite(string file)
+        {
+            try
+            {
+                using (new FileStream(file, FileMode.Open, FileAccess.Write))
+                    return true;
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return false;
+            }
+            catch (IOException)
+            {
+                return false;
+            }
+        }
+
         [Test]
         public void BadPaths_Fail_WithoutWritingTheTarget()
         {

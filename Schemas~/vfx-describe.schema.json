@@ -175,6 +175,7 @@
         "value": {"$ref": "#/$defs/value"},
         "node_count": {"type": "integer", "minimum": 0},
         "settings": {"$ref": "#/$defs/settings"},
+        "tooltip": {"type": "string", "minLength": 1, "description": "present only when the parameter has a tooltip"},
         "inputs": {"type": "array", "items": {"$ref": "#/$defs/inputSlot"}},
         "outputs": {"type": "array", "items": {"$ref": "#/$defs/outputSlot"}}
       }

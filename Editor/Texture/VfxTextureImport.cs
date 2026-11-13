@@ -493,10 +493,21 @@ namespace Cuvara.VFX.Editor
             {
                 if (previousBytes != null)
                 {
-                    File.WriteAllBytes(targetFile, previousBytes);
-                    if (previousMeta != null)
+                    // Write back only what changed: when the write itself failed (a read-only or locked
+                    // target), the file still holds the previous bytes and a second write would fail too.
+                    var changed = false;
+                    if (!SameBytes(targetFile, previousBytes))
+                    {
+                        File.WriteAllBytes(targetFile, previousBytes);
+                        changed = true;
+                    }
+                    if (previousMeta != null && !SameBytes(metaFile, previousMeta))
+                    {
                         File.WriteAllBytes(metaFile, previousMeta);
-                    AssetDatabase.ImportAsset(targetPath, ImportAssetOptions.ForceUpdate | ImportAssetOptions.ForceSynchronousImport);
+                        changed = true;
+                    }
+                    if (changed)
+                        AssetDatabase.ImportAsset(targetPath, ImportAssetOptions.ForceUpdate | ImportAssetOptions.ForceSynchronousImport);
                 }
                 else if (!AssetDatabase.DeleteAsset(targetPath))
                 {
@@ -511,6 +522,8 @@ namespace Cuvara.VFX.Editor
                 result.Error($"the target '{targetPath}' could not be restored: {exception.GetType().Name}: {exception.Message}");
             }
         }
+
+        static bool SameBytes(string file, byte[] bytes) => File.Exists(file) && File.ReadAllBytes(file).SequenceEqual(bytes);
 
         static void EnsureFolder(string folder)
         {

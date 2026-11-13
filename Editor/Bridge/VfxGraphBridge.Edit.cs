@@ -400,6 +400,13 @@ namespace Cuvara.VFX.Editor.Bridge
                     break;
                 case IEnumerable<KeyValuePair<string, object>> map:
                 {
+                    foreach (var pair in map)
+                    {
+                        if (pair.Key != "guid" && pair.Key != "path")
+                            throw EditException.Unknown($"field of an asset reference at {where}", pair.Key, new[] { "guid", "path" });
+                        if (!(pair.Value is string))
+                            throw new EditException($"{where}: '{pair.Key}' of an asset reference must be a string, got {Show(pair.Value)}");
+                    }
                     var guid = map.Where(p => p.Key == "guid").Select(p => p.Value as string).FirstOrDefault();
                     path = map.Where(p => p.Key == "path").Select(p => p.Value as string).FirstOrDefault();
                     if (!string.IsNullOrEmpty(guid))
@@ -407,6 +414,8 @@ namespace Cuvara.VFX.Editor.Bridge
                         var fromGuid = AssetDatabase.GUIDToAssetPath(guid);
                         if (string.IsNullOrEmpty(fromGuid))
                             throw new EditException($"{where}: no asset with GUID {guid}");
+                        if (!string.IsNullOrEmpty(path) && !string.Equals(path.Replace('\\', '/'), fromGuid, StringComparison.Ordinal))
+                            throw new EditException($"{where}: the GUID {guid} is the asset '{fromGuid}', not '{path}'; give one of guid and path");
                         path = fromGuid;
                     }
                     break;
@@ -631,6 +640,55 @@ namespace Cuvara.VFX.Editor.Bridge
                 return new GraphEdit(assetPath, resource, graph);
             }
 
+            /// <summary>
+            /// Creates an empty subgraph asset at <paramref name="assetPath"/> (under <c>Assets/</c>) with VFX
+            /// Graph's own <c>VisualEffectAssetEditorUtility.CreateNew</c>, the call its "Convert to Subgraph"
+            /// makes: <c>.vfxoperator</c> gives a subgraph operator, <c>.vfxblock</c> a subgraph block. A
+            /// subgraph block also gets its <c>VFXBlockSubgraphContext</c> (as the graph window adds it), under
+            /// the id <paramref name="blockContextId"/>; add the block's blocks to it. An asset already there is
+            /// deleted first. A subgraph that a <c>.vfx</c> uses as a context is a plain <c>.vfx</c>: use
+            /// <see cref="Create"/>.
+            /// </summary>
+            /// <remarks>
+            /// The inputs of a subgraph are its exposed parameters (<see cref="AddParameter"/>), in their
+            /// order; the outputs of a subgraph operator are its output parameters
+            /// (<see cref="AddOutputParameter"/>). Call <see cref="Save"/>, then import the asset, before a
+            /// graph uses it.
+            /// </remarks>
+            public static GraphEdit CreateSubgraph(string assetPath, string blockContextId = "blocks")
+            {
+                RequireSupportedVersion();
+                var extension = Path.GetExtension(assetPath ?? string.Empty).ToLowerInvariant();
+                if (string.IsNullOrEmpty(assetPath) || !assetPath.StartsWith("Assets/", StringComparison.Ordinal) || (extension != ".vfxoperator" && extension != ".vfxblock"))
+                    throw new EditException($"a new subgraph is created under Assets/ with the extension .vfxoperator or .vfxblock, not at '{assetPath}'");
+                if (!string.IsNullOrEmpty(AssetDatabase.AssetPathToGUID(assetPath, AssetPathToGUIDOptions.OnlyExistingAssets)))
+                    AssetDatabase.DeleteAsset(assetPath);
+
+                if (extension == ".vfxoperator")
+                    VisualEffectAssetEditorUtility.CreateNew<VisualEffectSubgraphOperator>(assetPath);
+                else
+                    VisualEffectAssetEditorUtility.CreateNew<VisualEffectSubgraphBlock>(assetPath);
+                var resource = VisualEffectResource.GetResourceAtPath(assetPath);
+                if (resource == null || !resource.isSubgraph)
+                    throw new EditException($"VFX Graph did not create a subgraph resource at '{assetPath}'");
+                var graph = resource.GetGraph() ?? resource.CreateGraph();
+                var edit = new GraphEdit(assetPath, resource, graph);
+
+                if (extension == ".vfxblock")
+                {
+                    if (string.IsNullOrEmpty(blockContextId))
+                        throw new EditException("a subgraph block needs an id for its block context");
+                    var context = graph.children.OfType<VFXBlockSubgraphContext>().FirstOrDefault();
+                    if (context == null)
+                    {
+                        context = ScriptableObject.CreateInstance<VFXBlockSubgraphContext>();
+                        graph.AddChild(context, 0);
+                    }
+                    edit.Register(blockContextId, context);
+                }
+                return edit;
+            }
+
             /// <summary>Opens an existing <c>.vfx</c> asset; its nodes get the ids <c>describe</c> prints.</summary>
             public static GraphEdit Open(string assetPath)
             {
@@ -689,6 +747,34 @@ namespace Cuvara.VFX.Editor.Bridge
             /// </summary>
             public void AddParameter(string id, string type, string exposedName, object value, bool exposed, string category, string tooltip)
             {
+                var parameter = NewParameter(id, type, exposedName);
+                parameter.SetSettingValue("m_Exposed", exposed);
+                if (!string.IsNullOrEmpty(category))
+                    parameter.category = category;
+                if (!string.IsNullOrEmpty(tooltip))
+                    parameter.tooltip = tooltip;
+                if (value != null || typeof(UnityEngine.Object).IsAssignableFrom(parameter.type))
+                    parameter.value = ConvertTo(parameter.type, value, parameter.value, id + ".value");
+                Register(id, parameter);
+            }
+
+            /// <summary>
+            /// Adds an output parameter, an output of the subgraph operator this graph is: its input slot
+            /// (<c>&lt;id&gt;.i</c>) takes the value the operator returns under <paramref name="name"/>.
+            /// </summary>
+            public void AddOutputParameter(string id, string type, string name, string tooltip)
+            {
+                if (!m_Resource.isSubgraph)
+                    throw new EditException("output parameters exist only in a subgraph operator");
+                var parameter = NewParameter(id, type, name);
+                parameter.isOutput = true;
+                if (!string.IsNullOrEmpty(tooltip))
+                    parameter.tooltip = tooltip;
+                Register(id, parameter);
+            }
+
+            VFXParameter NewParameter(string id, string type, string exposedName)
+            {
                 CheckNewId(id);
                 if (string.IsNullOrEmpty(exposedName))
                     throw new EditException("a parameter needs a name");
@@ -707,14 +793,7 @@ namespace Cuvara.VFX.Editor.Bridge
                 parameter.collapsed = true;
                 parameter.order = m_Graph.children.OfType<VFXParameter>().Count() - 1;
                 parameter.SetSettingValue("m_ExposedName", exposedName);
-                parameter.SetSettingValue("m_Exposed", exposed);
-                if (!string.IsNullOrEmpty(category))
-                    parameter.category = category;
-                if (!string.IsNullOrEmpty(tooltip))
-                    parameter.tooltip = tooltip;
-                if (value != null || typeof(UnityEngine.Object).IsAssignableFrom(parameter.type))
-                    parameter.value = ConvertTo(parameter.type, value, parameter.value, id + ".value");
-                Register(id, parameter);
+                return parameter;
             }
 
             /// <summary>

@@ -67,8 +67,10 @@ namespace Cuvara.VFX.Editor
                 "links an output slot to an input slot"),
             new Spec("link_flow", new[] { "from", "to" }, new[] { "from_slot", "to_slot" },
                 "links the flow of two contexts (flow slots default to 0)"),
-            new Spec("use_subgraph", new[] { "id", "asset" }, new[] { "context", "settings", "slots" },
-                "adds a subgraph: .vfx (context), .vfxoperator (operator) or .vfxblock (block, needs context)"),
+            // No 'settings': the only setting of a subgraph node (VFX Graph 17.6) is its asset, m_Subgraph,
+            // which 'asset' sets. 'slots' are the subgraph's exposed parameters by name.
+            new Spec("use_subgraph", new[] { "id", "asset" }, new[] { "context", "slots" },
+                "adds a subgraph: .vfx (context), .vfxoperator (operator) or .vfxblock (block, needs context); slots are its exposed parameters"),
             new Spec("set_output", new[] { "node" }, new[] { "texture", "blend_mode", "color_mapping", "gradient" },
                 "sets the texture, blend mode, colour mapping and mapping gradient of an output context"),
             new Spec("comment", new[] { "text" }, new[] { "title" },

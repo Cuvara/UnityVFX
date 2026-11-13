@@ -162,6 +162,7 @@ python Tools~/vfxcli.py describe --args args.json --mode batch  # force a batch-
 (`c1.b0._Position`, `o3.coordinate`, `c5.b0.A.x`). Math operators have output slots without a
 name; their address is `#<index>` (`o0.#0`). Each slot entry carries its address component as
 `ref`. Links are listed once, from the input side, sorted by `to`; flow links by `to`, `to_slot`.
+A parameter carries `tooltip` only when it has one, so graphs without tooltips describe as before.
 Two calls on the same asset gave byte-identical output for all 36 graphs of the VFX Graph samples.
 
 ### What Unity's sample graphs show
@@ -280,8 +281,8 @@ stops the build.
 | `set_slot` | `slot` | `value`, `space` (`None`, `Local`, `World`) | an input slot value or space, or a parameter value |
 | `link_slots` | `from`, `to` | | output slot to input slot |
 | `link_flow` | `from`, `to` | `from_slot`, `to_slot` (default 0) | flow from one context to the next |
-| `use_subgraph` | `id`, `asset` | `context`, `settings`, `slots` | `.vfx` gives a subgraph context, `.vfxoperator` an operator, `.vfxblock` a block in `context` |
-| `set_output` | `node` | `texture`, `blend_mode`, `color_mapping`, `gradient` | `blendMode` and `colorMapping` settings, the `mainTexture` (or `baseColorMap`) input, the `gradient` input of `GradientMapped` |
+| `use_subgraph` | `id`, `asset` | `context`, `slots` | `.vfx` gives a subgraph context, `.vfxoperator` an operator, `.vfxblock` a block in `context`; `slots` are the subgraph's exposed parameters (see Subgraphs) |
+| `set_output` | `node` | `texture` (an asset value), `blend_mode`, `color_mapping`, `gradient` | `blendMode` and `colorMapping` settings, the `mainTexture` (or `baseColorMap`) input, the `gradient` input of `GradientMapped` (set `color_mapping` in the same op or before) |
 | `comment` | `text` | `title` | a sticky note |
 
 - **`type`** is the catalog `type` (`VFXSpawnerBurst`) or `type_full`. **`variant`** is a catalog
@@ -307,8 +308,47 @@ stops the build.
   of their fields (`{"center": [0, 1, 0], "size": [4, 4, 4]}`), and a struct with one field
   (`Position.position`, `Vector.vector`) also as that field's value (`[0, 1, 0]`). A map changes
   only the fields it names.
-- **Asset references** are project-relative paths (or `{"guid": "..."}`); the builder loads the
-  asset and the graph stores its GUID. A missing asset is an error.
+- **Asset values** (a texture slot, a `Texture2D` parameter, `set_output` `texture`) are a
+  project-relative path (`Assets/...`, `Packages/<package>/...`), `{"guid": "<32 hex>"}` or
+  `{"path": "..."}`; the builder loads the asset and the graph stores its GUID (`describe` prints
+  `path` and `guid`). `guid` and `path` together must name the same asset. A missing asset, an
+  unknown GUID, an asset of another type (`is not a Texture2D`) or another field in the object is an
+  error. `use_subgraph` `asset` is a path only (its extension picks the node).
+
+Every op and op field above is used by a recipe that builds and is checked through `describe` in
+`Tests/Editor/RecipeBuildTests.cs` (the BurstQuads fixture) and `Tests/Editor/RecipeCoverageTests.cs`
+(`set_output` with every field, asset values by path and by GUID, slot spaces, `add_operator`,
+`set_setting`, `link_flow` flow slots, a context label, a parameter's category and tooltip, the three
+subgraph kinds); `EveryOpAndField_IsUsedByARecipeThatBuilds` fails when an op field is added
+without a recipe that uses it.
+
+### Subgraphs
+
+`use_subgraph` adds a node that holds a subgraph asset; `describe` prints the asset under the
+node's setting `m_Subgraph` (`path`, `guid`), its inputs under `inputs` and links into them under
+`links`. The only setting of the three subgraph nodes in VFX Graph 17.6 is `m_Subgraph`, which
+`asset` sets, so the op has no `settings` field (`unknown field of use_subgraph 'settings'`).
+
+| Asset | Node | Inputs (`slots`, link targets) | Outputs |
+|---|---|---|---|
+| `.vfxoperator` (`VisualEffectSubgraphOperator`) | operator `VFXSubgraphOperator` | the exposed parameters of the subgraph, by exposed name, in their order | its output parameters, by name (`twice.Out`) |
+| `.vfxblock` (`VisualEffectSubgraphBlock`) | block `VFXSubgraphBlock` in `context` | the exposed parameters | none |
+| `.vfx` (`VisualEffectAsset`) | context `VFXSubgraphContext` (`context_type` `Subgraph`) | the exposed parameters of that graph | none; its flow inputs are the graph's events and the start and stop of its spawners without an input link (`VFXSubgraphContext.RecreateCopyIfNeeded`; not exercised by the tests) |
+
+- A `.vfxblock` declares the contexts it suits with the setting `m_SuitableContexts` of its
+  `VFXBlockSubgraphContext` (`Init`, `Update`, `Output`, `InitAndUpdate`, ...; default
+  `InitAndUpdateAndOutput`); a block in another context fails with `cannot be added to context`.
+- `context` is required for a `.vfxblock` and refused for the other two.
+- Subgraph assets are made in the graph window or, by code, with the bridge:
+  `VfxGraphBridge.GraphEdit.CreateSubgraph(path, blockContextId)` creates an empty `.vfxoperator` or
+  `.vfxblock` with VFX Graph's own `VisualEffectAssetEditorUtility.CreateNew<T>` (the call of its
+  "Convert to Subgraph"); a `.vfxblock` also gets its `VFXBlockSubgraphContext` (the graph window
+  adds it when it opens the asset; `CreateNew` does not), registered under `blockContextId`.
+  `AddParameter` adds the inputs, `AddOutputParameter` the outputs of an operator subgraph (a
+  parameter with `isOutput`, whose input slot is `<id>.i`); then `Save()` and import the asset
+  before a graph uses it. A `.vfx` used as a subgraph is an ordinary graph (`build` a recipe).
+  `RecipeCoverageTests` builds all three this way in a temporary folder; nothing from Unity's
+  samples is copied.
 
 ### What `build` and `apply` do
 
@@ -417,8 +457,10 @@ Set on the target's `TextureImporter` after the PNG is written, and read back in
    PNG signature) and the target (inside the project or a package, ends with `.png`).
 2. Decode the source and run the steps in memory; check the flipbook grid on the final size.
 3. Write the PNG (creating missing folders), import it, set the import settings and re-import. When
-   writing or importing fails, the previous PNG and `.meta` are put back (a new target is deleted).
-   An error before this step never touches the target.
+   writing or importing fails, the previous PNG and `.meta` are put back where they changed (a new
+   target is deleted). An error before this step never touches the target. Tested at each stage
+   with SHA-256 before and after: an unknown step, a `pack_channels` file of another size, a
+   flipbook grid that does not divide the resized image, and a write that fails (read-only target).
 
 Result payload: `source`, `source_sha256`, `source_size`, `target`, `steps` (each applied step with
 its parameters and defaults; `resize_pot` adds `from` and `to`), `inputs` (each `pack_channels`
@@ -713,6 +755,21 @@ Each entry is a verified failure: symptom, cause, fix, file.
 - **Fix:** after a recompile, ask `script-execute` for `EditorUtility.scriptCompilationFailed`;
   count console errors only after an editor restart (`setup-sandbox.py --close`, `--open`).
 - **File:** none (workflow).
+
+### `import-texture` over a read-only target reported a failed restore
+
+- **Symptom:** an import onto an existing read-only `Out.png` failed with two errors: `import of
+  '...Out.png' failed, the target is restored: UnauthorizedAccessException: Access to the path ...
+  is denied.` and `the target '...Out.png' could not be restored: UnauthorizedAccessException ...`.
+  The PNG and its `.meta` were in fact unchanged (same SHA-256 before and after).
+- **Cause:** the restore wrote the previous bytes back unconditionally; the write that had just
+  failed failed again.
+- **Fix:** the restore writes the PNG and the `.meta` back only when their bytes differ from the
+  previous ones, and re-imports only then. The same case now gives one error. Verified by
+  `TextureImportTests.FailedImport_LeavesAnExistingTargetAndItsMetaWithTheSameHashes("write_fails")`,
+  which failed with the old restore (`Expected: property Count equal to 1 But was: 2`) and passes
+  with the fix.
+- **File:** `Editor/Texture/VfxTextureImport.cs` (`Restore`).
 
 ### Other observations
 

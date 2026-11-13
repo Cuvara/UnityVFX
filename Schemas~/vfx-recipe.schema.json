@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/Cuvara/UnityVFX/Schemas~/vfx-recipe.schema.json",
   "title": "com.cuvara.vfx recipe",
-  "description": "The source of truth of an effect: <Name>.vfxrecipe.json, committed next to the <Name>.vfx that the build verb creates from it. Ops run in order. Every node gets a recipe-local id; a slot is addressed as <id>.<slot path>, the path joining slot names with dots (init.bounds.center); a slot without a name is #<index>; 'out' is the only output of a node that has exactly one. Type, variant, setting and slot names are the ones the catalog verb prints. Asset references are project-relative paths (Assets/... or Packages/<package>/...). The builder checks names against the VFX Graph library; this schema checks the shape. Reference: Documentation~/AUTHORING.md, section Recipe.",
+  "description": "The source of truth of an effect: <Name>.vfxrecipe.json, committed next to the <Name>.vfx that the build verb creates from it. Ops run in order. Every node gets a recipe-local id; a slot is addressed as <id>.<slot path>, the path joining slot names with dots (init.bounds.center); a slot without a name is #<index>; 'out' is the only output of a node that has exactly one. Type, variant, setting and slot names are the ones the catalog verb prints. Asset values are project-relative paths (Assets/... or Packages/<package>/...) or {\"guid\": ...}. The builder checks names against the VFX Graph library; this schema checks the shape. Reference: Documentation~/AUTHORING.md, section Recipe.",
   "type": "object",
   "required": ["schema", "id", "ops"],
   "additionalProperties": false,
@@ -20,6 +20,16 @@
     "typeName": {"type": "string", "minLength": 1, "description": "catalog type (VFXSpawnerBurst) or type_full"},
     "variant": {"type": "string", "minLength": 1, "description": "catalog variant id (Spawn/Single Burst)"},
     "assetPath": {"type": "string", "pattern": "^(Assets|Packages)/", "description": "project-relative asset path"},
+    "assetRef": {
+      "description": "an asset value: a project-relative path, or {\"guid\": ...} (or {\"path\": ...}); the builder loads the asset and the graph stores its GUID",
+      "anyOf": [
+        {"$ref": "#/$defs/assetPath"},
+        {"type": "object", "required": ["guid"], "additionalProperties": false,
+         "properties": {"guid": {"type": "string", "pattern": "^[0-9a-f]{32}$"}, "path": {"$ref": "#/$defs/assetPath"}}},
+        {"type": "object", "required": ["path"], "additionalProperties": false,
+         "properties": {"path": {"$ref": "#/$defs/assetPath"}}}
+      ]
+    },
     "settings": {"type": "object", "description": "setting name to value, applied in order"},
     "slots": {"type": "object", "description": "slot path (relative to the node) to value, applied in order"},
     "meta": {
@@ -174,9 +184,8 @@
         "op": {"const": "use_subgraph"},
         "id": {"$ref": "#/$defs/id"},
         "asset": {"type": "string", "pattern": "^(Assets|Packages)/.+\\.(vfx|vfxoperator|vfxblock)$"},
-        "context": {"$ref": "#/$defs/ref"},
-        "settings": {"$ref": "#/$defs/settings"},
-        "slots": {"$ref": "#/$defs/slots"}
+        "context": {"$ref": "#/$defs/ref", "description": "the context of a .vfxblock subgraph; not allowed for .vfx and .vfxoperator"},
+        "slots": {"$ref": "#/$defs/slots", "description": "the subgraph's exposed parameters by name"}
       }
     },
     "set_output": {
@@ -187,7 +196,7 @@
       "properties": {
         "op": {"const": "set_output"},
         "node": {"$ref": "#/$defs/ref"},
-        "texture": {"anyOf": [{"$ref": "#/$defs/assetPath"}, {"type": "null"}]},
+        "texture": {"anyOf": [{"$ref": "#/$defs/assetRef"}, {"type": "null"}]},
         "blend_mode": {"enum": ["Opaque", "Alpha", "Additive", "AlphaPremultiplied"]},
         "color_mapping": {"enum": ["Default", "GradientMapped"]},
         "gradient": {"type": "object"}

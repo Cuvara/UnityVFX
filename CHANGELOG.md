@@ -96,8 +96,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `premultiply`, `pack_channels` and `resize_pot` on known pixels, importer settings for linear,
   sRGB and wrap, and the failure cases on PNGs the tests write themselves.
 
+- EditMode tests `RecipeCoverageTests` for every recipe op field the BurstQuads fixture does not
+  use, each built in a temporary folder and checked through `describe`: `set_output` with texture,
+  blend mode, colour mapping and gradient; asset values by project-relative path, `{"guid"}` and
+  `{"path"}` (also through `apply`); the space of a spaceable slot; `add_operator` with variant,
+  settings and slots; `set_setting`; `link_flow` `from_slot` and `to_slot`; a context label; a
+  parameter's category and tooltip; `use_subgraph` with a `.vfxoperator`, a `.vfxblock` and a `.vfx`
+  subgraph, with slot values, links into their inputs and a deterministic rebuild; the clear errors
+  of bad asset values, spaces, flow slots and subgraphs; and a check that every op field of
+  `VfxRecipeOps` is used by a recipe that builds.
+- Bridge: `GraphEdit.CreateSubgraph` creates an empty `.vfxoperator` or `.vfxblock` with VFX
+  Graph's `VisualEffectAssetEditorUtility.CreateNew<T>` (a `.vfxblock` with its
+  `VFXBlockSubgraphContext`), and `GraphEdit.AddOutputParameter` adds an output of a subgraph
+  operator.
+- `describe` prints a parameter's `tooltip` when it has one (`Schemas~/vfx-describe.schema.json`).
+- EditMode test: a failing `import-texture` over an existing target (unknown step, a `pack_channels`
+  file of another size, a flipbook grid that does not divide the resized image, a read-only target)
+  leaves the PNG and its `.meta` with the same SHA-256.
+- `Documentation~/AUTHORING.md`: Subgraphs, asset values, op coverage, a new pitfall.
+
 ### Changed
 
+- `use_subgraph` no longer takes `settings`: the only setting of a subgraph node in VFX Graph 17.6 is
+  its asset (`m_Subgraph`), which `asset` sets; a recipe with `settings` fails with the valid fields.
+- An asset value given as an object takes only `guid` and `path`, and both must name the same asset;
+  any other field is an error that lists them. The recipe schema accepts `{"guid"}` and `{"path"}`
+  for `set_output` `texture`.
 - `catalog` lists the settings a model forwards (Initialize: `capacity`, `boundsMode` and the
   other data settings; composed outputs: their topology and shading settings) through
   `VFXModel.GetSettings`, the same list `set_setting` accepts.
@@ -113,5 +137,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `import-texture` over a read-only (or locked) existing target reported `could not be restored`
+  besides the import error, although the target was unchanged: the restore now writes the PNG and
+  `.meta` back only where they differ.
 - `check_metas.py` no longer reports the `.meta` files of the nested `Sandbox~` project (and later
   `Samples~`) as orphans: its orphan pass only judges `.meta` files on Unity-visible paths.
