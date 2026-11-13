@@ -85,6 +85,9 @@ cycle, which the editor's initial Search indexing walked until the editor was ki
 
 ## Agent interface
 
+Where the built verbs, formats, schemas or layout differ from this section, the differences are
+listed in [AUTHORING.md, "Differences from DESIGN.md"](AUTHORING.md#differences-from-designmd).
+
 One entry point, JSON in and JSON out, so every bridge can call it:
 
 ```csharp

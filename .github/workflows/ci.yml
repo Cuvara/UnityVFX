@@ -49,10 +49,18 @@ jobs:
       - name: asmdef names
         run: python .github/scripts/check_asmdefs.py
 
+      # The schemas are the contract rpg-factory reads; a broken schema would make every
+      # validation that uses it meaningless, so they are checked before the recipes.
+      - name: JSON Schemas are valid draft 2020-12 schemas
+        run: python .github/scripts/check_schemas.py
+
       # Passes while Schemas~/vfx-recipe.schema.json or the recipes do not exist yet, and fails
       # on an invalid recipe as soon as both do.
       - name: Committed recipes match the recipe schema
         run: python .github/scripts/check_recipes.py
+
+      - name: Python tools and scripts compile
+        run: python -m py_compile Tools~/*.py .github/scripts/*.py
 
       - name: Workflow files parse
         run: |
@@ -91,8 +99,11 @@ jobs:
           fi
 
   # ---------------------------------------------------------------------------
-  # Unity tests against Sandbox~, which references this package as file:../.. and enables it in
-  # `testables`. EditMode and PlayMode are separate jobs so a failure names the mode.
+  # Unity tests against a copy of Sandbox~, which lists this package in `testables`.
+  # Unity 6000.6 cannot map package scripts to classes when the project path has a component
+  # ending in `~` (Documentation~/AUTHORING.md, Pitfalls), and the Sandbox manifest references
+  # the package as file:../../package, so the project is never opened at Sandbox~ itself.
+  # EditMode and PlayMode are separate jobs so a failure names the mode.
   # ---------------------------------------------------------------------------
   editmode:
     name: Unity EditMode tests
@@ -101,21 +112,20 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
+      # The package goes to sandbox-home/package and a copy of Sandbox~ to sandbox-home/Sandbox:
+      # the layout of the sandbox home that Tools~/setup-sandbox.py makes with links on a
+      # workstation (Documentation~/CI.md, "The Sandbox in CI").
       - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          path: sandbox-home/package
 
-      # Creates the Sandbox~/Assets/Showcase link to Samples~/Showcase (gitignored).
-      - name: Prepare the Sandbox
-        run: |
-          if [ -f "Tools~/setup-sandbox.py" ]; then python "Tools~/setup-sandbox.py"; fi
+      - name: Lay out the Sandbox like the open path
+        run: python3 sandbox-home/package/.github/scripts/ci_sandbox.py sandbox-home
 
       - uses: actions/cache@v4
         with:
-          path: Sandbox~/Library
-          key: Library-editmode-${{ env.UNITY_VERSION }}-${{ hashFiles('Sandbox~/Packages/manifest.json', 'package.json') }}
+          path: sandbox-home/Sandbox/Library
+          key: Library-editmode-${{ env.UNITY_VERSION }}-${{ hashFiles('sandbox-home/package/Sandbox~/Packages/manifest.json', 'sandbox-home/package/Sandbox~/Packages/packages-lock.json', 'sandbox-home/package/package.json') }}
           restore-keys: |
             Library-editmode-${{ env.UNITY_VERSION }}-
 
@@ -126,7 +136,7 @@ jobs:
           UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
           UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
         with:
-          projectPath: Sandbox~
+          projectPath: sandbox-home/Sandbox
           unityVersion: ${{ env.UNITY_VERSION }}
           testMode: EditMode
           githubToken: ${{ secrets.GITHUB_TOKEN }}
@@ -134,7 +144,7 @@ jobs:
 
       - name: Assert tests ran and passed
         if: always()
-        run: python .github/scripts/assert_test_results.py artifacts --label "EditMode tests"
+        run: python3 sandbox-home/package/.github/scripts/assert_test_results.py artifacts --label "EditMode tests"
 
       - name: Upload test results
         uses: actions/upload-artifact@v4
@@ -150,20 +160,20 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
+      # The package goes to sandbox-home/package and a copy of Sandbox~ to sandbox-home/Sandbox:
+      # the layout of the sandbox home that Tools~/setup-sandbox.py makes with links on a
+      # workstation (Documentation~/CI.md, "The Sandbox in CI").
       - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          path: sandbox-home/package
 
-      - name: Prepare the Sandbox
-        run: |
-          if [ -f "Tools~/setup-sandbox.py" ]; then python "Tools~/setup-sandbox.py"; fi
+      - name: Lay out the Sandbox like the open path
+        run: python3 sandbox-home/package/.github/scripts/ci_sandbox.py sandbox-home
 
       - uses: actions/cache@v4
         with:
-          path: Sandbox~/Library
-          key: Library-playmode-${{ env.UNITY_VERSION }}-${{ hashFiles('Sandbox~/Packages/manifest.json', 'package.json') }}
+          path: sandbox-home/Sandbox/Library
+          key: Library-playmode-${{ env.UNITY_VERSION }}-${{ hashFiles('sandbox-home/package/Sandbox~/Packages/manifest.json', 'sandbox-home/package/Sandbox~/Packages/packages-lock.json', 'sandbox-home/package/package.json') }}
           restore-keys: |
             Library-playmode-${{ env.UNITY_VERSION }}-
 
@@ -174,7 +184,7 @@ jobs:
           UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
           UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
         with:
-          projectPath: Sandbox~
+          projectPath: sandbox-home/Sandbox
           unityVersion: ${{ env.UNITY_VERSION }}
           testMode: PlayMode
           githubToken: ${{ secrets.GITHUB_TOKEN }}
@@ -182,7 +192,7 @@ jobs:
 
       - name: Assert tests ran and passed
         if: always()
-        run: python .github/scripts/assert_test_results.py artifacts --label "PlayMode tests"
+        run: python3 sandbox-home/package/.github/scripts/assert_test_results.py artifacts --label "PlayMode tests"
 
       - name: Upload test results
         uses: actions/upload-artifact@v4

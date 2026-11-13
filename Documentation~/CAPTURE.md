@@ -4,7 +4,8 @@
 evidence a reviewer or a lint can read: one PNG per sample, `contact-sheet.png` and `stats.json`
 (schema [`Schemas~/vfx-capture.schema.json`](../Schemas~/vfx-capture.schema.json),
 `cuvara.vfx-capture/1`). The contract is in [DESIGN.md](DESIGN.md), section "Capture"; the
-differences from it are listed at the end of this file.
+differences from it are listed at the end of this file and, with those of the other verbs, in
+[AUTHORING.md](AUTHORING.md#differences-from-designmd).
 
 ```sh
 python Tools~/vfxcli.py capture --json '{"effect": "Tests/Fixtures/BurstQuads/BurstQuads.vfx", "seed": 1234}'
@@ -24,14 +25,15 @@ python Tools~/vfxcli.py capture --json '{"effect": "Effects/Spark/Spark.prefab",
 | `out` | `<project>/Captures/<effect name>/seed-<seed>-<camera>-<lighting>` | output folder; for the Sandbox that is `Sandbox~/Captures/...` (gitignored). A folder Unity would import (under `Assets/` or a package, except below a `~` folder) is refused |
 | `delta_time` | `1/60` | `Time.captureDeltaTime`, above 0 and at most 0.1 s |
 | `width`, `height` | `640`, `360` | frame size, 64 to 2048 |
-| `columns` | `4` | columns of the contact sheet |
-| `probe_interval` | `0.05` | seconds between alive-count probes (rounded to whole frames) |
-| `settle_frames` | `70` | frames the effect is held still before a count is read (at least 62, see Determinism) |
-| `max_seconds` | `10` | upper bound of the simulated time |
-| `timeout_seconds` | `900` | wall-clock limit of the whole job |
+| `columns` | `4` | columns of the contact sheet, 1 to 16 |
+| `probe_interval` | `0.05` | seconds between alive-count probes, from `delta_time` to 1 s (rounded to whole frames) |
+| `settle_frames` | `70` | frames the effect is held still before a count is read, 62 to 600 (see Determinism) |
+| `max_seconds` | `10` | upper bound of the simulated time, above 0 and at most 60 |
+| `timeout_seconds` | `900` | wall-clock limit of the whole job, 30 to 3600 s |
 
 `effect` and `out` may be written relative to the current directory: vfxcli.py rewrites them
-(AUTHORING.md, "Agent interface").
+(AUTHORING.md, "Agent interface"). A bad argument fails before play mode is entered, with every
+problem in `errors` (an unknown `camera` or `lighting` lists the valid names).
 
 ## Presets
 
@@ -162,9 +164,14 @@ not end.
   `result_file`); the final result is in `result_file`. vfxcli.py hides this.
 - `effect` in `stats.json` is the project path (`Packages/com.cuvara.vfx/...`), not the path
   inside the repository.
-- `stats.json` has three more fields: `resolution`, `probe_interval`, `settle_frames`.
+- `stats.json` has three more fields: `resolution`, `probe_interval`, `settle_frames`. The final
+  verb result also has `out`, `stats_file`, `probes`, `pending` and `job`.
 - `mean_luminance` and `max_luminance` are after tonemapping (DESIGN's example shows 7.8).
 - More optional inputs: `delta_time`, `width`, `height`, `columns`, `probe_interval`,
   `settle_frames`, `max_seconds`, `timeout_seconds`.
+- `alive.peak` is the largest count over the samples and the probes, not over every frame.
+- `duration_seconds` and `bounds` may be null.
+- Defaults: `seed` 1234, `times` 8 samples over the recipe's `meta.duration_seconds`, `out` under
+  `<project>/Captures`.
 - The presets live in the runtime assembly (`Runtime/Presets/`), not under `Editor/Capture/`, so
   the Showcase's runtime overlay can use them.

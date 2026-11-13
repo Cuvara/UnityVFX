@@ -1,7 +1,28 @@
 # Authoring effects with com.cuvara.vfx
 
-How agents and people open the agent-owned Sandbox project, drive it, and what has gone wrong
-before. The formats and verbs are in [DESIGN.md](DESIGN.md).
+The guide for an agent (or a person) who authors an effect with this package: open the agent-owned
+Sandbox, learn the names with `catalog` and from existing graphs with `describe`, write a recipe,
+`build` it, bring textures in with `import-texture`, check the static facts with `inspect` and
+play-test it with `capture`. Every verb runs through one command, `Tools~/vfxcli.py`.
+
+The order of work:
+
+1. Sandbox: set it up and open it ([Sandbox](#sandbox)).
+2. `catalog` before writing anything: the type, setting and slot names a recipe uses
+   ([Learn the names with `catalog`](#learn-the-names-with-catalog)).
+3. `describe` an existing graph to see how a system is put together
+   ([Read a graph with `describe`](#read-a-graph-with-describe)).
+4. Write `<Name>.vfxrecipe.json`, then `build` (or `apply` ops to a graph)
+   ([Recipe: build and apply](#recipe-build-and-apply)).
+5. `import-texture` for generated textures ([Texture import](#texture-import)).
+6. `inspect` for budgets and lint facts ([Inspect an effect](#inspect-an-effect)).
+7. `capture`, then look at the contact sheet ([Capture an effect](#capture-an-effect),
+   [CAPTURE.md](CAPTURE.md)).
+
+[DESIGN.md](DESIGN.md) is the contract the package was built against; where the built verbs,
+formats, schemas or layout differ from it, the difference is listed in
+[Differences from DESIGN.md](#differences-from-designmd) at the end of this file. Verified failures
+and their fixes are under [Pitfalls](#pitfalls).
 
 ## Sandbox
 
@@ -111,27 +132,73 @@ the links (links only) and an empty sandbox home.
    is missing or not in `Custom` mode.
 2. `python Tools~/setup-sandbox.py --open`. The first import takes several minutes.
 
-`Sandbox~/Assets/Plugins/NuGet` (the plugin's NuGet DLLs) is committed, as in the game client:
-without it the first open stops at Unity's compile-errors dialog (see Pitfalls).
+### The committed NuGet DLLs
+
+`Sandbox~/Assets/Plugins/NuGet` holds the third-party .NET DLLs the Unity-MCP plugin needs (45
+DLLs, about 19 MB: `McpPlugin`, `ReflectorNet`, the ASP.NET Core SignalR client, Roslyn
+`Microsoft.CodeAnalysis`, `Microsoft.Extensions.*` and their dependencies; the list with versions
+is `Sandbox~/Assets/Plugins/NuGet/.nuget-installed.json`). They are the plugin's own restore output,
+committed as the game client commits them, because the plugin does not restore them on its own: a
+first open without the folder stops at about 1000 compile errors and stays there (Pitfalls,
+"Missing NuGet DLLs stop the first open at a dialog"). Their licence entries belong in
+`THIRD-PARTY.md` at the repository root, which the Showcase task (pkg-showcase) owns and writes;
+this package does not ship the DLLs (they are inside `Sandbox~`, which Unity does not import from
+the package).
 
 ## Agent interface: `Tools~/vfxcli.py`
 
-Every verb (DESIGN.md, "Agent interface") runs through one command. It prints the result JSON on
-stdout and, with `--out`, writes the same text to a file; progress goes to stderr.
+Every verb runs through one command. The C# entry points behind it are
+`Cuvara.VFX.Editor.VfxCli.Run(string verb, string jsonArgs)` (returns compact JSON, never throws) and
+`Cuvara.VFX.Editor.VfxCli.Batch()` (for `-executeMethod`; reads `-vfxVerb`, `-vfxArgs <file>`,
+`-vfxOut <file>`; exits the editor with 0 ok, 1 `"ok": false`, 2 usage). Agents use vfxcli.py,
+which picks the path, waits for verbs that span play mode and maps path arguments.
 
 ```sh
+python Tools~/vfxcli.py <verb> [--project <unity project>] [--args <file.json> | --json '<object>']
+                               [--out <file.json>] [--mode auto|editor|batch] [--timeout <s>]
+                               [--memory-limit-gb <GB>]
 python Tools~/vfxcli.py catalog                                  # --project Sandbox~ is the default
 python Tools~/vfxcli.py catalog --json '{"filter": "spawn", "include_sub_variants": true}'
 python Tools~/vfxcli.py describe --json '{"asset": "Assets/Effects/Spark.vfx"}' --out spark.json
 python Tools~/vfxcli.py describe --args args.json --mode batch  # force a batch-mode editor
 ```
 
+| Option | Default | Meaning |
+|---|---|---|
+| `<verb>` | required | `catalog`, `describe`, `build`, `apply`, `import-texture`, `inspect`, `capture`; must match `[a-z][a-z0-9-]*` |
+| `--project` | `Sandbox~` | the Unity project; `Sandbox~`, its full path and the open path all mean the Sandbox and resolve to the open path (`sandbox_paths.resolve_project`) |
+| `--args` / `--json` | `{}` | the verb's arguments: a JSON file or inline JSON (one or the other); must be an object |
+| `--out` | none | also write the result to this file (the same bytes as stdout) |
+| `--mode` | `auto` | `editor`: through the open editor; `batch`: a batch-mode editor; `auto`: editor when this project's editor runs, else batch |
+| `--timeout` | editor 280 s (at most 280), a pending verb 900 s, batch 1800 s | seconds for the verb; for a pending verb (`capture`) through the editor, the wait for its result |
+| `--memory-limit-gb` | 12 (`CUVARA_VFX_SANDBOX_MEMORY_LIMIT_GB`) | batch mode: kill the batch editor above this many GB of private bytes |
+
+The result is printed on stdout as indented UTF-8 JSON, and with `--out` the same text is written
+to that file; progress (editor PID, batch time, peak memory, path rewrites) goes to stderr, so two
+runs on the same input give the same bytes. Every result is
+`{"ok": bool, "verb": str, "errors": [..], "warnings": [..], ...payload}`. An argument a verb does
+not read becomes a warning; an unknown verb is an error that lists `valid_verbs`.
+
 | Exit code | Meaning |
 |---|---|
 | 0 | `"ok": true` |
-| 1 | `"ok": false` (the errors say why), or the call into Unity failed |
+| 1 | `"ok": false` (the errors say why), or the call into Unity failed (script-execute error, no result file, the batch editor killed or exited without a result, a pending verb that gave no result in time or whose editor ended) |
 | 2 | usage: no verb, a verb name that is not `[a-z][a-z0-9-]*`, unreadable or non-object arguments |
-| 3 | no editor available: the open path or the package link is missing (the message names `python Tools~/setup-sandbox.py`), an editor has the project open but Unity-MCP does not answer, a batch run was asked while an editor has the project open, or Unity 6000.6.9f1 is not installed |
+| 3 | no editor available: the open path or the package link is missing (the message names `python Tools~/setup-sandbox.py`), an editor has the project open but Unity-MCP does not answer or `unity-mcp-cli` is not on PATH, `--mode editor` with no editor open, a batch run was asked while an editor has the project open, or Unity 6000.6.9f1 is not installed |
+
+### Verbs
+
+| Verb | Input | Output (payload besides the envelope) | Section |
+|---|---|---|---|
+| `catalog` | `filter` (case-insensitive substring of a type name, full type name, library name, title or category), `include_sub_variants` (default false) | `contexts`, `blocks`, `operators`, `parameter_types`, each with type, variant, settings (name, type, allowed values, default) and slots; `recipe_ops`, `recipe_op_fields`, `texture_steps`, `texture_step_fields`, `recipe_schema`, `counts`, `vfx_graph`, `vfx_graph_bridge`, `unity` | [Learn the names](#learn-the-names-with-catalog) |
+| `describe` | `asset`: a `.vfx`, `.vfxoperator` or `.vfxblock` | the graph: contexts with their blocks, operators, parameters, other models, settings, slot values, links, flow links, systems, sticky notes, groups; schema `Schemas~/vfx-describe.schema.json` (`cuvara.vfx-describe/1`) | [Read a graph](#read-a-graph-with-describe) |
+| `build` | `recipe`: a `<Name>.vfxrecipe.json` | creates or replaces `<Name>.vfx` next to it; `asset`, `systems`, `compile_errors`, `describe_sha256`, hashes | [Recipe](#recipe-build-and-apply) |
+| `apply` | `asset` (a `.vfx`), `ops` (recipe ops) | the same payload as `build`, for the changed asset | [Recipe](#recipe-build-and-apply) |
+| `import-texture` | `source` (PNG), `target` (`.png` asset), `transform` (steps) | the written texture, its import settings, `source_sha256`, `output_sha256` | [Texture import](#texture-import) |
+| `inspect` | `effect`: a `.vfx`, or a `.prefab` with one `VisualEffect` | static lint facts; schema `Schemas~/vfx-inspect.schema.json` (`cuvara.vfx-inspect/1`) | [Inspect](#inspect-an-effect) |
+| `capture` | `effect`, `seed`, `times`, `camera`, `lighting`, `out` and optional tuning | `contact-sheet.png`, one PNG per sample and `stats.json` (`Schemas~/vfx-capture.schema.json`, `cuvara.vfx-capture/1`) in `out`; the stats fields in the result | [CAPTURE.md](CAPTURE.md) |
+
+### How vfxcli.py runs a verb
 
 - **Editor path** (`--mode editor`, or `auto` when this clone's Sandbox editor runs): the verb runs
   through `unity-mcp-cli run-tool script-execute <open path>`, which calls `VfxCli.Run`. The
@@ -154,7 +221,35 @@ python Tools~/vfxcli.py describe --args args.json --mode batch  # force a batch-
   `Assets/` or `Packages/` are passed unchanged. `VfxCli.Run` itself does not do this: its current
   directory is the project.
 
-### Read a graph with `describe`
+## Learn the names with `catalog`
+
+Run `catalog` before writing a recipe and use its names, never names remembered from the graph
+window or another VFX Graph version: an unknown name is a build error. Save it once per session
+(`--out catalog.json`, about 800 KB) and search it, or narrow it with `filter`.
+
+```sh
+python Tools~/vfxcli.py catalog --out catalog.json
+python Tools~/vfxcli.py catalog --json '{"filter": "burst"}'
+```
+
+- `contexts`, `blocks`, `operators`: one entry per library entry with `kind`, `type` (the short
+  CLR name a recipe uses, `VFXSpawnerBurst`), `type_full`, `name` (library markup such as
+  `|Set|_Lifetime|Random Uniform`), `title` (plain, "Set Lifetime Random Uniform"), `category`,
+  `variant` (`id`, `settings`: the recipe's `variant`), `settings` (`name`, `type`, `kind`,
+  `allowed_values`, `default`, `visible_by_default`, `read_only`), `inputs` and `outputs` (slot
+  names and types). Contexts add `context_type`, `input_data`, `output_data`, `flow_inputs`,
+  `flow_outputs`; blocks add `compatible_contexts` and `compatible_data`. With
+  `include_sub_variants` an entry also lists its `sub_variants`, else only `sub_variant_count`.
+- `parameter_types`: the types `add_parameter` accepts, by `name` (`Vector 3`) and `type` (`Vector3`).
+- `recipe_ops` and `recipe_op_fields` (required and optional fields per op), `texture_steps` and
+  `texture_step_fields`: the recipe and import formats as the build reads them.
+- A context or block lists the settings it forwards (Initialize: `capacity`, `boundsMode` and the
+  other data settings), the same list `set_setting` accepts (Pitfalls).
+- Experimental library entries are always left out, whatever the editor preference
+  (Pitfalls, Other observations). Two short type names, `CustomHLSL` and `PositionDepth`, are both a
+  block and an operator; catalog warns about them, and `type_full` tells them apart.
+
+## Read a graph with `describe`
 
 `describe` gives every node a stable id in the serialised order of the graph's children: contexts
 `c0`, `c1`; their blocks `c0.b0`; operators `o0`; parameters `p0`; other models `x0`; systems
@@ -241,7 +336,7 @@ Pitfalls).
 | Field | Required | Meaning |
 |---|---|---|
 | `schema` | yes | `"cuvara.vfx-recipe/1"`; anything else is an error before any op runs |
-| `id` | yes | effect id, kebab-case (`chain-lightning`) |
+| `id` | yes | effect id, kebab-case (`chain-lightning`); the schema enforces the pattern `^[a-z0-9][a-z0-9-]*$`, `build` only requires a non-empty string, and CI (`check_recipes.py`) rejects a committed recipe that breaks the pattern |
 | `vfx_graph` | no | the VFX Graph major.minor the recipe was written for; another installed major.minor is a warning |
 | `meta` | no | `duration_seconds`, `looping`, `tags`, `phases` (`name`, `seconds`); not read by `build`, kept for capture and lint |
 | `ops` | yes | the ops, run in order |
@@ -681,10 +776,17 @@ Each entry is a verified failure: symptom, cause, fix, file.
   `error CS0234: The type or namespace name 'ReflectorNet' does not exist in the namespace
   'com.IvanMurzak'` and stops at Unity's compile-errors dialog; `wait-for-ready` times out. The
   default 30 s auto-dismiss of `unity-mcp-cli open` ended before the compile (about 45 s).
-- **Cause:** the plugin restores its NuGet DLLs only once the editor runs past that dialog.
-- **Fix:** keep `Assets/Plugins/NuGet` committed. Recovery without it: `unity-mcp-cli open
+  A second test on 2026-11-13 (the folder moved outside the repository, then
+  `setup-sandbox.py --open`): the editor never became ready in 600 s, stayed flat at 1.24 GB private,
+  `Sandbox~/Logs/Editor.log` had 1005 `error CS` lines (`CS0234 ... 'ReflectorNet'`, `CS0246
+  'IMcpPlugin'`, `'HubConnectionState'`, `'ReactiveProperty<>'`), the folder was not recreated, and
+  `--close` could not save (Unity-MCP never answered) and killed that PID after its 300 s timeout.
+- **Cause:** the plugin restores its NuGet DLLs only once the editor runs past that dialog, and
+  `setup-sandbox.py --open` does not dismiss it.
+- **Fix:** keep `Assets/Plugins/NuGet` committed (45 DLLs, 19 MB; commit `f0ede9a`; see Sandbox,
+  "The committed NuGet DLLs"). Recovery without it: `unity-mcp-cli open
   --launch-dismiss-timeout-ms 400000 "$OPEN"` clicks *Ignore*, and the plugin restores the DLLs.
-- **File:** `Sandbox~/Assets/Plugins/NuGet/`.
+- **File:** `Sandbox~/Assets/Plugins/NuGet/`, `Sandbox~/Assets/Plugins/NuGet/.nuget-installed.json`.
 
 ### A string literal counts as a GC allocation the first time a method runs
 
@@ -841,9 +943,13 @@ Each entry is a verified failure: symptom, cause, fix, file.
 - **Symptom:** after fixing `error CS0121` in a test and recompiling, `rql-query console | where
   logType == 'Error'` still listed it, while `EditorUtility.scriptCompilationFailed` was `false`
   and the test assembly was loaded.
-- **Cause:** the plugin's console buffer keeps old entries (see Other observations).
+- **Cause:** `rql-query console` reads the plugin's own log buffer, which keeps old entries;
+  clearing Unity's console (`LogEntries.Clear`) does not clear it.
 - **Fix:** after a recompile, ask `script-execute` for `EditorUtility.scriptCompilationFailed`;
-  count console errors only after an editor restart (`setup-sandbox.py --close`, `--open`).
+  count console errors only after an editor restart (`setup-sandbox.py --close`, `--open`). Expected
+  errors that tests log on purpose (`LogAssert.Expect`, such as the `unknown effect id` errors of the
+  `VfxPlayer` tests) and import errors of a deleted scratch folder also stay in the buffer until
+  the restart.
 - **File:** none (workflow).
 
 ### `import-texture` over a read-only target reported a failed restore
@@ -927,8 +1033,6 @@ Each entry is a verified failure: symptom, cause, fix, file.
 - Never remove a link while an editor has the project open through it: the running editor
   recreated `ProfilerCaptures/`, `UserSettings/` and `Library/mcp-server/` as a real folder at the
   old link path. Close the editor first; remove links only with `setup-sandbox.py --remove`.
-- `rql-query console` reads the plugin's own log buffer: clearing Unity's console
-  (`LogEntries.Clear`) does not clear it. Restart the editor for a clean count.
 - After `AssetDatabase.Refresh()` from `script-execute`, a background editor did not recompile a
   changed `Assets/` script; `AssetDatabase.ImportAsset(path, ImportAssetOptions.ForceUpdate)` with
   `CompilationPipeline.RequestScriptCompilation()` did. Wait with `rql-query editor | select
@@ -966,3 +1070,176 @@ Each entry is a verified failure: symptom, cause, fix, file.
   into a scratch folder, 32 of them import with `Missing Nested Prefab Asset` errors and hold no
   `VisualEffect`; `inspect` reports `has no VisualEffect component`, which is right. Their import
   errors stay in the console buffer after the scratch folder is deleted: restart the editor.
+- `describe_sha256` (in the results of `build`, `apply` and `inspect`) is the SHA-256 of the compact
+  JSON `VfxCli.Run("describe")` returns. vfxcli.py prints and writes indented JSON, so the SHA-256 of
+  a `vfxcli.py describe --out` file is a different number: compare `describe_sha256` values, not
+  file hashes (`Editor/Recipe/VfxRecipeBuilder.cs`, `Tools~/vfxcli.py` `emit`).
+
+## Differences from DESIGN.md
+
+Every place where the built verbs, formats, schemas or layout differ from
+[DESIGN.md](DESIGN.md), checked against the code on 2026-11-13. These differences are not written
+into DESIGN.md; the run lead decides whether the contract adopts them. Additions that keep every
+DESIGN field and behaviour are listed too, because rpg-factory scripts read these formats.
+
+### Layout
+
+1. `Library/`, `Effects/`, `Samples~/Showcase/` and `Documentation~/SHOWCASE.md` do not exist yet:
+   `Effects/` and `Samples~/` belong to later tasks (pkg-showcase), and no shared asset has needed
+   `Library/` so far. Proof: the repository tree (`git ls-files`).
+2. More folders than DESIGN lists: `Editor/` is split into `Cli/`, `Verbs/`, `Recipe/`, `Texture/`,
+   `Inspect/`, `Capture/` (the bridge stays alone in `Editor/Bridge/`); `Runtime/Presets/` holds the
+   capture and Showcase presets; `Tests/Fixtures/BurstQuads/` holds the fixture recipe and the
+   `.vfx` it builds. Proof: those folders.
+3. `Schemas~/` holds a fourth schema, `vfx-inspect.schema.json` (`cuvara.vfx-inspect/1`), besides
+   the recipe, capture and describe schemas. Proof: `Schemas~/vfx-inspect.schema.json`.
+4. `Sandbox~/Assets/Plugins/NuGet/` (the Unity-MCP plugin's 45 DLLs) is committed; DESIGN's Sandbox
+   section does not mention it. Proof: `Sandbox~/Assets/Plugins/NuGet/.nuget-installed.json`.
+
+### Runtime and assemblies
+
+5. `Cuvara.VFX` and `Cuvara.VFX.Editor` also reference `Unity.RenderPipelines.Core.Runtime` and
+   `Unity.RenderPipelines.Universal.Runtime`, for the lighting presets that set URP Volume
+   components (DESIGN's "no dependency on other Cuvara packages" still holds). Proof:
+   `Runtime/Cuvara.VFX.asmdef`, `Editor/Cuvara.VFX.Editor.asmdef`.
+6. The runtime assembly has more public types than the four DESIGN names: `VfxHandle` (returned by
+   `VfxPlayer.Play`, stops one instance), `VfxLightingPreset` and `VfxCameraPreset` (the presets
+   DESIGN shares between the Showcase and the capture stage, placed in the runtime so the Showcase
+   overlay can use them). `VfxPlayer.Play` also has a `Transform` overload. Proof:
+   `Runtime/VfxHandle.cs`, `Runtime/Presets/`, `Runtime/VfxPlayer.cs`.
+7. `ChainLightningBinder` takes up to 8 targets (`MaxTargets`), not N, and writes the properties
+   `SourcePosition`, `TargetPosition0` to `TargetPosition7` and `HopCount` (names configurable).
+   Proof: `Runtime/ChainLightningBinder.cs`.
+8. The bridge assembly `Unity.Testing.VisualEffectGraph.Editor` also references
+   `Unity.ShaderGraph.Editor` (the Shader Graph of an output is a `ShaderGraphVfxAsset`); it still
+   holds only `VfxGraphBridge` (three partial files). Proof:
+   `Editor/Bridge/Unity.Testing.VisualEffectGraph.Editor.asmdef`.
+
+### Agent interface and vfxcli.py
+
+9. vfxcli.py has more options than DESIGN's `--project`, `--args`, `--out`: `--json` (inline
+   arguments, exclusive with `--args`), `--mode auto|editor|batch`, `--timeout` and
+   `--memory-limit-gb`. Proof: `Tools~/vfxcli.py` `parse_args`.
+10. Exit code 1 also covers a failed call into Unity (script-execute error, no result file, a killed
+    batch editor, a pending verb without a result); exit code 3 also covers "Unity-MCP does not
+    answer", "`unity-mcp-cli` not on PATH", `--mode editor` without an editor, `--mode batch`
+    while an editor has the project open, and "Unity not installed". Proof: `Tools~/vfxcli.py`
+    (the `CliError` calls).
+11. vfxcli.py rewrites path arguments (`recipe`, `asset`, `effect`, `source`, `target`, `out`,
+    `file`, `texture`) written relative to the current directory into project paths
+    (`Packages/com.cuvara.vfx/...`, `Assets/...`) or absolute paths; `VfxCli.Run` does not. Proof:
+    `Tools~/vfxcli.py` `resolve_path_args`.
+12. vfxcli.py prints indented JSON; `VfxCli.Run` returns compact JSON. Runner details go to stderr.
+    Proof: `Tools~/vfxcli.py` `emit`, `Editor/Cli/VfxCli.cs`.
+13. `VfxCli.Batch` exits the editor with 0, 1 or 2 (usage), and does not exit for a pending verb
+    (the capture job exits it). Proof: `Editor/Cli/VfxCli.cs` (`ExitUsage`, `ExitPending`).
+14. Envelope additions: an argument a verb does not read is a warning; an unknown verb also returns
+    `valid_verbs`. Proof: `Editor/Cli/VfxCli.cs` `Execute`.
+
+### catalog
+
+15. Extra input `include_sub_variants` (default false). Proof: `Editor/Verbs/CatalogVerb.cs`.
+16. Payload superset: per entry `kind`, `type` (short CLR name, the recipe name), `type_full`,
+    `name` (library markup), `title`, `category`, `variant` (`id`, `settings`), settings with
+    `kind`, `default`, `visible_by_default`, `read_only`; context and block extras
+    (`context_type`, `input_data`, `output_data`, `flow_inputs`, `flow_outputs`,
+    `compatible_contexts`, `compatible_data`, `sub_variant_count`); top-level `vfx_graph_bridge`,
+    `unity`, `recipe_schema`, `recipe_ops`, `recipe_op_fields`, `texture_steps`,
+    `texture_step_fields`, `filter`, `counts`. Experimental entries are always left out. Settings
+    include those a model forwards (Initialize data settings). Proof: `Editor/Verbs/CatalogVerb.cs`,
+    `Editor/Bridge/VfxGraphBridge.cs` (`Catalog`), `Editor/Bridge/VfxGraphBridge.Edit.cs`
+    (`UserSettings`).
+
+### describe
+
+17. Payload superset: `schema` `cuvara.vfx-describe/1`, `asset`, `asset_kind`, `graph_version`,
+    `other_models`, `sticky_notes`, `groups`; systems with `data_type`, `capacity` (null for a
+    spawner) and their contexts; a parameter's `tooltip` only when set. Blocks are listed inside
+    their context. Proof: `Schemas~/vfx-describe.schema.json`, `Editor/Bridge/VfxGraphBridge.cs`
+    (`Describe`).
+18. Ids are assigned by describe (`c0`, `c0.b0`, `o0`, `p0`, `x0`, `s0`); unnamed slots (math
+    operator outputs) are addressed `<id>.#<index>`; links are listed once, from the input side,
+    sorted. Proof: `Editor/Bridge/VfxGraphBridge.cs` (`AssignIds`, slot paths).
+19. `describe` also takes `.vfxoperator` and `.vfxblock` subgraph assets and an absolute path inside
+    a local package. Proof: `Editor/Bridge/VfxGraphBridge.cs`, `Editor/Verbs/DescribeVerb.cs`.
+
+### Recipe, build and apply
+
+20. Op fields are fixed by the implementation (DESIGN named only the ops): `set_setting` `node`,
+    `name`, `value`; `set_slot` `slot`, `value`, `space`; `link_flow` `from`, `to`, `from_slot`,
+    `to_slot`; `use_subgraph` `id`, `asset`, `context`, `slots` (no `settings`: the only setting
+    of a subgraph node in 17.6 is its asset); `set_output` `node`, `texture`, `blend_mode`,
+    `color_mapping`, `gradient`; `comment` `text`, `title`; `add_parameter` also `category`,
+    `tooltip`; `add_context` also `label`. Proof: `Editor/Recipe/VfxRecipeOps.cs`,
+    `Schemas~/vfx-recipe.schema.json`.
+21. New optional field `variant` on `add_context`, `add_block`, `add_operator` (a catalog variant
+    id). Proof: `Editor/Recipe/VfxRecipeOps.cs`.
+22. Slot addresses: a slot without a name is `<id>.#<index>` (DESIGN: never by index); `<id>.out`
+    is an alias for the only output of a node with exactly one (a parameter's real output slot is
+    `o`), which makes DESIGN's `p_color.out` work. Proof: `Editor/Bridge/VfxGraphBridge.Edit.cs`
+    (slot lookup).
+23. `add_parameter.type` takes the catalog parameter `name` (`Color`, `Vector 3`) or `type`
+    (`Vector3`). Proof: `Editor/Bridge/VfxGraphBridge.Edit.cs`.
+24. Asset values: a project-relative path (as DESIGN says), or `{"guid": ...}` or `{"path": ...}`
+    (both together must name the same asset). Proof: `Editor/Bridge/VfxGraphBridge.Edit.cs`
+    (`LoadAsset`), `Schemas~/vfx-recipe.schema.json` (`assetRef`).
+25. The schema requires a kebab-case `id`; `build` only requires a non-empty string. Unknown
+    top-level and op fields are errors (DESIGN does not say). Proof:
+    `Schemas~/vfx-recipe.schema.json`, `Editor/Recipe/VfxRecipeBuilder.cs`.
+26. `apply` addresses existing nodes by the ids `describe` prints. Proof:
+    `Editor/Recipe/VfxRecipeBuilder.cs`, `Editor/Bridge/VfxGraphBridge.cs` (`AssignIds`).
+27. Payload additions of `build` and `apply`: `recipe_sha256`, `recipe_id` (build), `ops_applied`,
+    `created`, `guid_stable`, `previous_sha256`, `sha256`, `describe_sha256`, and `op_error` on a
+    failure. Proof: `Editor/Recipe/VfxRecipeBuilder.cs`.
+28. Determinism holds at the `describe` level, not in the `.vfx` bytes (Unity gives sub-assets new
+    local file ids on each write); DESIGN's "describe to the same JSON" holds. Proof: Pitfalls, "Two
+    builds of the same recipe give different `.vfx` bytes".
+
+### import-texture
+
+29. Step parameters are fixed by the implementation: `luminance_to_alpha` `color` (`keep`, `white`,
+    `unpremultiply`); `pack_channels` `r`, `g`, `b`, `a` (a constant or `{"file", "channel"}`);
+    `resize_pot` `max_size`; `flipbook` `columns`, `rows`; `wrap` `u`, `v` or `mode`. A step is a
+    name or an object `{"step": name, ...}`. Proof: `Editor/Texture/VfxTextureSteps.cs`.
+30. `flipbook` checks and records the frame grid; it does not move pixels. Proof:
+    `Editor/Texture/VfxTextureSteps.cs`.
+31. Payload beyond the two hashes: `source_size`, `steps`, `inputs` (each `pack_channels` file with
+    its SHA-256), `size`, `flipbook`, `created`, `previous_sha256`, `guid`, `guid_stable`,
+    `import_settings`, and `step_error` on a failure. Proof: `Editor/Texture/VfxTextureImport.cs`.
+
+### inspect
+
+32. Output fields the DESIGN row does not list: `effect`, `asset`, `prefab`, `recipe`,
+    `build_target`, `describe_sha256`, per output `effective` and `render_settings`, per texture
+    `estimated_bytes`, `readable` and `used_by`, `exposed_properties[].overrides`,
+    `hdr_colors[].intensity`, `totals`. Proof: `Schemas~/vfx-inspect.schema.json`.
+33. A prefab must hold exactly one `VisualEffect`; with several it is an error (inspect each `.vfx`).
+    Proof: `Editor/Inspect/VfxInspect.cs`.
+
+### capture
+
+34. `VfxCli.Run("capture")` returns a pending result (`pending`, `job`, `out`, `result_file`); the
+    final result is in `result_file`. vfxcli.py waits for it. Proof: `Editor/Capture/VfxCaptureJob.cs`.
+35. `effect` in `stats.json` is the project path (`Packages/com.cuvara.vfx/...`), not the path in the
+    repository. Proof: `Editor/Capture/VfxCaptureRequest.cs` (`Parse`).
+36. `stats.json` has three more fields, `resolution`, `probe_interval`, `settle_frames`; the final
+    verb result adds `out`, `stats_file`, `probes`, `pending`, `job`. Proof:
+    `Schemas~/vfx-capture.schema.json`, `Editor/Capture/VfxCaptureSession.cs`.
+37. `mean_luminance` and `max_luminance` are measured after ACES tonemapping, so `max_luminance`
+    stays near or below 1 (DESIGN's example shows 7.8). Proof: `Editor/Capture/VfxCaptureSession.cs`.
+38. More optional inputs: `delta_time`, `width`, `height`, `columns`, `probe_interval`,
+    `settle_frames`, `max_seconds`, `timeout_seconds`; defaults `seed` 1234, `times` 8 samples over
+    the recipe's `meta.duration_seconds` (1 s without a recipe), `out`
+    `<project>/Captures/<effect>/seed-<seed>-<camera>-<lighting>`. Proof:
+    `Editor/Capture/VfxCaptureRequest.cs`.
+39. `alive.peak` is the largest count over the samples and the probes (every `probe_interval`,
+    default 0.05 s), not over every frame; each count is read after the effect is held still for
+    `settle_frames`. Proof: `Editor/Capture/VfxCaptureSession.cs`, CAPTURE.md "Determinism".
+40. `duration_seconds` and `bounds` may be null (an effect that did not end by `max_seconds`, or
+    never had a particle). Proof: `Schemas~/vfx-capture.schema.json`.
+
+### CI
+
+41. The game-ci jobs open a copy of `Sandbox~` at `sandbox-home/Sandbox` next to the checkout at
+    `sandbox-home/package`, not `Sandbox~` itself (Unity 6000.6 and `file:../../package`). Proof:
+    `.github/workflows/ci.yml`, `.github/scripts/ci_sandbox.py`, CI.md.

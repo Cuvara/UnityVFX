@@ -9,188 +9,118 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Package scaffold: `package.json` (`com.cuvara.vfx` 0.1.0, Unity 6000.6, VFX Graph 17.6.0 and URP
-  17.6.0), MIT licence, README, and the licence-free CI validation (`package.json` fields, CHANGELOG
-  heading, `.meta` coverage, recipe schema validation) with game-ci EditMode and PlayMode jobs that
-  are skipped when the `UNITY_LICENSE` secret is absent.
-- Agent-owned `Sandbox~` Unity project (6000.6.9f1): URP 17.6.0 with HDR, Forward+, depth and
-  opaque textures, VFX Graph 17.6.0, Unity-MCP 1.7.0 from OpenUPM, Test Framework, Input System,
-  linear colour space; settings created and checked by `SandboxSetup.Apply()` / `Report()`.
-- `Tools~/setup-sandbox.py` and `Tools~/sandbox_paths.py`: an idempotent per-clone sandbox home
-  outside the repository (`Sandbox` link = the open path, `package` link = the package, referenced
-  as `file:../../package`), the Showcase link, a hard error on any link cycle inside the
-  repository, local Unity-MCP config, and `--open` / `--watch` / `--close` with a memory guard
-  (default 12 GB private bytes) plus `--remove` / `--print-open-path`. Unity 6000.6 cannot map
-  package scripts to classes when the project path has a `~` or `.` component, so the Sandbox is
-  always opened through the open path (see `Documentation~/AUTHORING.md`).
-- `Documentation~/AUTHORING.md` with the Sandbox workflow and the verified pitfalls.
-- Runtime assembly `Cuvara.VFX` (references `Unity.VisualEffectGraph.Runtime` only):
-  `VfxLibrary` (effect id to prefab, duration and tags; ordinal lookup; `Validate` reports empty and
-  duplicate ids, missing prefabs, prefabs without a `VisualEffect` and negative durations),
-  `VfxSocket` (named attach point with the well-known names `head`, `chest`, `hand_l`, `hand_r`,
-  `feet` and a lookup under a root), `VfxPlayer` (plays an effect by id at a position or on a socket,
-  one-shot or looped, pooled per effect id, no managed allocation per play once the pool is warm,
-  `VfxHandle` to stop an instance) and `ChainLightningBinder` (writes `SourcePosition`,
-  `TargetPosition0`..`TargetPosition7` and `HopCount` into a `VisualEffect` every frame; at most 8
-  targets; null, destroyed and inactive targets skipped; missing properties skipped silently).
-- PlayMode test assembly `Cuvara.VFX.Tests` (gated by `UNITY_INCLUDE_TESTS`) for the four runtime
-  types.
+#### Package
+
+- `package.json` (`com.cuvara.vfx` 0.1.0, Unity 6000.6, dependencies `com.unity.visualeffectgraph`
+  17.6.0 and `com.unity.render-pipelines.universal` 17.6.0, `testables`), MIT licence, README,
+  `.gitignore` and `.gitattributes`.
+
+#### Runtime (assembly `Cuvara.VFX`)
+
+- References `Unity.VisualEffectGraph.Runtime`, `Unity.RenderPipelines.Core.Runtime` and
+  `Unity.RenderPipelines.Universal.Runtime` (the lighting presets set URP Volume components); no
+  Entities, netcode, VContainer or other Cuvara package.
+- `VfxLibrary` (ScriptableObject): effect id to prefab, duration and tags; ordinal lookup;
+  `Validate` reports empty and duplicate ids, missing prefabs, prefabs without a `VisualEffect` and
+  negative durations.
+- `VfxSocket`: a named attach point with the well-known names `head`, `chest`, `hand_l`, `hand_r`,
+  `feet` and a lookup under a root.
+- `VfxPlayer`: plays an effect by id at a position, on a socket or under a transform, one-shot or
+  looped, pooled per effect id, with no managed allocation per play once the pool is warm;
+  `VfxHandle` stops one instance.
+- `ChainLightningBinder`: writes `SourcePosition`, `TargetPosition0` to `TargetPosition7` and
+  `HopCount` into a `VisualEffect` every frame; at most 8 targets; null, destroyed and inactive
+  targets skipped; missing properties skipped silently.
+- `VfxLightingPreset` (`day`, `dusk` default, `night`: key and fill light, trilight ambient,
+  background, Bloom, ACES, vignette, post exposure) and `VfxCameraPreset` (`gameplay` default, about
+  45 degrees at 10 m; `close`; `side`), shared by the capture stage and the Showcase.
+
+#### Editor
+
 - Bridge assembly `Unity.Testing.VisualEffectGraph.Editor` (the name VFX Graph 17.6 lets see its
-  internals) with `VfxGraphBridge` only: a version guard for VFX Graph 17.6.x, the library catalog
-  and the graph description, exposed as plain values (strings, numbers, lists and the ordered
-  `VfxGraphBridge.Map`), never as an internal type.
-- Editor assembly `Cuvara.VFX.Editor`: the agent entry point `VfxCli.Run(verb, jsonArgs)` (JSON
+  internals) with `VfxGraphBridge` only: a version guard for VFX Graph 17.6.x, the library catalog,
+  the graph description, the write primitives (`GraphEdit`: create a graph with VFX Graph's own
+  `CreateNewAsset`, add nodes by catalog name and variant, set settings and slot values, link slots
+  and flow, add subgraphs and sticky notes, create subgraph assets, save with
+  `WriteAssetWithSubAssets`), `CompileReport` and `InspectOutputs`. It exposes plain values only,
+  never an internal type, and references `Unity.ShaderGraph.Editor` for the Shader Graph of an
+  output. No `.vfx` text is written or patched.
+- Editor assembly `Cuvara.VFX.Editor` with the agent entry point `VfxCli.Run(verb, jsonArgs)` (JSON
   envelope `ok`, `verb`, `errors`, `warnings`, payload; never throws; an unknown verb lists the
   valid ones; unused arguments become warnings) and `VfxCli.Batch()` for `-executeMethod`
-  (`-vfxVerb`, `-vfxArgs`, `-vfxOut`; exit code 0, 1 or 2), a verb registry that finds one
-  `IVfxVerb` class per file, a dependency-free JSON reader and writer with stable output, and the
-  read-only verbs `catalog` (contexts, blocks, operators and parameter types with variant, settings
-  with allowed values and defaults, and slots; recipe op names; VFX Graph version) and `describe`
-  (contexts, blocks, operators, parameters, settings, slot values, slot links, flow links, systems
-  with capacity, sticky notes and groups, with stable ids and ordering).
-- `Schemas~/vfx-describe.schema.json` for the `describe` result.
-- `Tools~/vfxcli.py <verb> [--project] [--args | --json] [--out] [--mode]`: runs a verb through
-  Unity-MCP `script-execute` when the Sandbox editor is open (arguments and result through files),
-  else through a batch-mode editor with graphics under the memory guard; exit codes 0 ok, 1 ok
-  false, 2 usage, 3 no editor.
-- EditMode test assembly `Cuvara.VFX.Editor.Tests` (gated by `UNITY_INCLUDE_TESTS`): the internals
-  guard, the envelope and batch entry, catalog content and determinism, describe determinism on a
-  temporary copy of VFX Graph's Simple Burst template.
-- `Documentation~/AUTHORING.md`: the agent interface, what Unity's sample graphs show about systems,
-  spawning, attributes, colour over life and blend modes, and new pitfalls.
-- Recipe builder and the verbs `build` (recipe path) and `apply` (asset and ops): the ops
-  `add_parameter`, `add_context`, `add_block`, `add_operator`, `set_setting`, `set_slot`,
-  `link_slots`, `link_flow`, `use_subgraph`, `set_output` and `comment`, with recipe-local ids,
-  slot addresses `<id>.<slot path>` (`#<index>` for unnamed slots, `out` for a single output),
-  catalog type names with an optional catalog variant id, and asset references by project-relative
-  path. An unknown op, field, id, type, variant, setting, slot or enum value fails with the op index
-  and the valid names, nearest first (`op_error`). The graph is built on a temporary copy, compiled
-  (in-memory compile, per-node errors, import with logged errors, generated shader messages) and
-  copied over the real `.vfx` only when clean, keeping its GUID; a failed build leaves the previous
-  asset byte-identical. The result reports compile errors, the capacity per system and
-  `describe_sha256`; two builds of a recipe describe to the same JSON.
-- Bridge write primitives (`VfxGraphBridge.GraphEdit`, `CompileReport`, `Systems`,
-  `NearestFirst`, `EditException`): create a graph with VFX Graph's own `CreateNewAsset`, add
-  nodes by catalog name and variant, set settings and slot values (numbers, enums, vectors, HDR
-  colours, gradients, curves, VFX structs, assets), link slots and flow, add subgraphs and sticky
-  notes, save with `WriteAssetWithSubAssets`. No `.vfx` text is written or patched.
-- `Schemas~/vfx-recipe.schema.json` (`cuvara.vfx-recipe/1`) and the fixture
-  `Tests/Fixtures/BurstQuads` (`BurstQuads.vfxrecipe.json` and the `BurstQuads.vfx` it builds: one
-  burst of 24 additive quads with a colour over life and an exposed `Tint` colour).
-- `catalog` prints `recipe_op_fields` (required and optional fields per op).
-- EditMode tests: recipe round trip and determinism, unknown names (block type, setting, slot, op,
-  id, variant) leaving the previous asset byte-identical, `apply` on describe ids, the recipe schema
-  against the fixture and against the builder's op list (with a small JSON Schema validator).
-- Verb `import-texture` (`source` PNG, `target` `.png` asset, ordered `transform`): the steps
-  `luminance_to_alpha` (`color`: `keep`, `white`, `unpremultiply`), `premultiply`, `pack_channels`
-  (`r`, `g`, `b`, `a` from a constant or a file and channel), `resize_pot` (`max_size`; area
-  average), `flipbook` (`columns`, `rows`, checked against the output size), `wrap` (`u`, `v` or
-  `mode`: `repeat`, `clamp`), `linear` and `srgb`. The pixel steps run on managed byte arrays in
-  integer arithmetic, so the output bytes are the same on every run. The verb writes the PNG and
-  its `TextureImporter` settings (sRGB, alpha source, alpha is transparency, wrap, mip maps, max
-  size, compression) and returns the SHA-256 of the source, of every `pack_channels` input and of
-  the output, the sizes, the applied steps and the import settings. An unknown step, parameter or
-  value fails with the valid names, nearest first (`step_error`); a failed import leaves an
-  existing target untouched. `catalog` prints `texture_steps` and `texture_step_fields`.
-- EditMode tests for `import-texture`: output hash determinism, `luminance_to_alpha`,
-  `premultiply`, `pack_channels` and `resize_pot` on known pixels, importer settings for linear,
-  sRGB and wrap, and the failure cases on PNGs the tests write themselves.
+  (`-vfxVerb`, `-vfxArgs`, `-vfxOut`; exit code 0, 1 or 2).
+- Verb `catalog`: contexts, blocks, operators and parameter types with variant, settings (allowed
+  values, defaults, forwarded settings such as Initialize's `capacity`) and slots; the recipe op
+  names and fields; the texture steps and their fields; the VFX Graph version. Experimental entries
+  are always left out.
+- Verb `describe`: contexts, blocks, operators, parameters, settings, slot values, slot links, flow
+  links, systems with capacity, sticky notes and groups, with stable ids and ordering; also for
+  `.vfxoperator` and `.vfxblock` subgraphs.
+- Verbs `build` (recipe path) and `apply` (asset and ops) with the ops `add_parameter`,
+  `add_context`, `add_block`, `add_operator`, `set_setting`, `set_slot`, `link_slots`, `link_flow`,
+  `use_subgraph`, `set_output` and `comment`: recipe-local ids, slot addresses `<id>.<slot path>`
+  (`#<index>` for unnamed slots, `out` for a single output), catalog type names with an optional
+  catalog variant id, asset values by project-relative path, `{"guid"}` or `{"path"}`. An unknown
+  op, field, id, type, variant, setting, slot or enum value fails with the op index and the valid
+  names, nearest first (`op_error`). The graph is built on a temporary copy, compiled and copied over
+  the real `.vfx` only when clean, keeping its GUID; a failed build leaves the previous asset
+  byte-identical. Two builds of a recipe describe to the same JSON (`describe_sha256`).
+- Verb `import-texture`: the steps `luminance_to_alpha`, `premultiply`, `pack_channels`,
+  `resize_pot`, `flipbook`, `wrap`, `linear` and `srgb` on managed byte arrays in integer
+  arithmetic, so the output bytes are the same on every run; writes the PNG and its
+  `TextureImporter` settings and returns the SHA-256 of the source, of every `pack_channels` input
+  and of the output. A failed import leaves an existing target and its `.meta` unchanged.
+- Verb `inspect`: the static facts a lint reads, for a `.vfx` or a prefab with one `VisualEffect`:
+  systems with capacity, outputs with blend mode, generated shader, Shader Graph and effective render
+  features, textures with size, format, compression and estimated GPU bytes, exposed properties with
+  defaults and prefab overrides, HDR colour values, the recipe hash and `describe_sha256`.
+- Verb `capture`: a deterministic play-test in a neutral stage made from code, with a fixed seed and
+  `Time.captureDeltaTime`; writes one PNG per sample, `contact-sheet.png` and `stats.json`. The
+  effect is held still for `settle_frames` at every sample and probe, because VFX Graph refreshes
+  `aliveParticleCount` only every 60 frames, so counts are exact and never -1. The verb returns a
+  pending result and finishes after the domain reload of play mode (`VfxCaptureJob`); in batch mode
+  the job writes `-vfxOut` and exits the editor.
 
-- EditMode tests `RecipeCoverageTests` for every recipe op field the BurstQuads fixture does not
-  use, each built in a temporary folder and checked through `describe`: `set_output` with texture,
-  blend mode, colour mapping and gradient; asset values by project-relative path, `{"guid"}` and
-  `{"path"}` (also through `apply`); the space of a spaceable slot; `add_operator` with variant,
-  settings and slots; `set_setting`; `link_flow` `from_slot` and `to_slot`; a context label; a
-  parameter's category and tooltip; `use_subgraph` with a `.vfxoperator`, a `.vfxblock` and a `.vfx`
-  subgraph, with slot values, links into their inputs and a deterministic rebuild; the clear errors
-  of bad asset values, spaces, flow slots and subgraphs; and a check that every op field of
-  `VfxRecipeOps` is used by a recipe that builds.
-- Bridge: `GraphEdit.CreateSubgraph` creates an empty `.vfxoperator` or `.vfxblock` with VFX
-  Graph's `VisualEffectAssetEditorUtility.CreateNew<T>` (a `.vfxblock` with its
-  `VFXBlockSubgraphContext`), and `GraphEdit.AddOutputParameter` adds an output of a subgraph
-  operator.
-- `describe` prints a parameter's `tooltip` when it has one (`Schemas~/vfx-describe.schema.json`).
-- EditMode test: a failing `import-texture` over an existing target (unknown step, a `pack_channels`
-  file of another size, a flipbook grid that does not divide the resized image, a read-only target)
-  leaves the PNG and its `.meta` with the same SHA-256.
-- `Documentation~/AUTHORING.md`: Subgraphs, asset values, op coverage, a new pitfall.
-- Verb `inspect` (`effect`: a `.prefab` that holds one `VisualEffect`, or a `.vfx`): the static
-  facts a lint reads, schema `Schemas~/vfx-inspect.schema.json` (`cuvara.vfx-inspect/1`). Systems
-  with their VFX Graph name, capacity and outputs; per output its type, blend mode, the shader it
-  renders with (the generated sub-asset, or a static mesh output's shader), its Shader Graph, its
-  effective render features (sorted, indirect draw, shadow casting, soft particles, motion vector,
-  alpha clipping, flipbook, strips, ray traced) and the render settings it shows; every texture of
-  the graph and of the prefab's overrides with size, format, sRGB, mip maps, compression,
-  readability and estimated GPU bytes; exposed properties with their default and the prefab's
-  overrides; HDR colour values (Color, Gradient keys and colour vectors with a channel above 1) of
-  parameters, slots and overrides with RGBA, peak and intensity; the recipe next to the `.vfx` with
-  its SHA-256; `describe_sha256`; totals. No timestamp; two calls give the same JSON (verified on
-  BurstQuads and on 36 graphs and 3 prefabs of the VFX Graph samples).
-- Bridge: `VfxGraphBridge.InspectOutputs` (unique system names, the context letters VFX Graph
-  assigns before a compile, generated shader per output, Shader Graph, visible settings, effective
-  features) and `PlainValue`; the bridge assembly references `Unity.ShaderGraph.Editor` for the
-  Shader Graph asset type.
-- EditMode tests `InspectVerbTests` on the BurstQuads fixture (capacity, output type, additive blend,
-  generated shader, exposed `Tint` and its default, the HDR value, texture facts, recipe hash,
-  describe hash, determinism, schema) and on a prefab made at test time (overrides, HDR override,
-  an override texture, an override that matches no property, a prefab without a `VisualEffect`).
-- `Documentation~/AUTHORING.md`: Inspect an effect, two new pitfalls.
-- Verb `capture` (`effect` `.prefab` or `.vfx`, `seed`, `times`, `camera`, `lighting`, `out`, and
-  the optional `delta_time`, `width`, `height`, `columns`, `probe_interval`, `settle_frames`,
-  `max_seconds`, `timeout_seconds`): a deterministic play-test in a neutral stage made from code
-  (grey ground and backdrop, key and fill light, trilight ambient, a global Volume with Bloom, ACES
-  tonemapping, a light vignette and post exposure, a camera rendering into an `ARGBHalf` target
-  with post-processing on), in a scene of its own, with `Time.captureDeltaTime` fixed,
-  `resetSeedOnPlay` off and `startSeed` from the input. Writes one PNG per sample with its SHA-256
-  and mean and max luminance, `contact-sheet.png` and `stats.json`, schema
-  `Schemas~/vfx-capture.schema.json` (`cuvara.vfx-capture/1`). The effect is held still for
-  `settle_frames` (default 70) at every sample and every probe (default every 0.05 s), because VFX
-  Graph refreshes `aliveParticleCount` only every 60 frames, so counts are exact for the held state
-  and never -1: two captures with one seed give the same counts and byte-identical PNGs (editor and
-  batch path alike).
-- `VfxCaptureJob`: the verb returns at once with `"pending": true` and a `result_file`; the job
-  survives the domain reload of entering play mode in `SessionState`, runs the capture, leaves play
-  mode and then writes the final result. `VfxCli.Batch` does not exit for a pending verb: the job
-  writes `-vfxOut` and exits the editor with 0 or 1. `Tools~/vfxcli.py` waits for `result_file`
-  through the editor (`--timeout`, default 900 s for a pending verb).
-- Runtime presets shared with the Showcase: `VfxLightingPreset` (`day`, `dusk` default, `night`:
-  key and fill light, trilight ambient, background, Bloom, ACES, vignette, post exposure; `ApplyTo`
-  lights and a `VolumeProfile`, `ApplyAmbient`) and `VfxCameraPreset` (`gameplay` default, about
-  45 degrees at 10 m; `close`; `side`; `ApplyTo` a camera). `Get` returns a copy.
-- Tests: `CaptureTests` (EditMode; the determinism test enters play mode with `EnterPlayMode` and
-  captures BurstQuads twice with seed 1234: same peak 24, same counts, no -1, every file written and
-  hashed, stats.json valid against the schema; argument errors and defaults) and
-  `CapturePresetTests` (PlayMode assembly; names, defaults, copies, applying to a camera, lights and
-  a Volume profile). The test JSON Schema validator knows `maximum`.
-- `Documentation~/CAPTURE.md` and capture pitfalls in `Documentation~/AUTHORING.md`.
+#### Schemas, fixture and tests
 
-### Changed
+- JSON Schemas (draft 2020-12) `Schemas~/vfx-recipe.schema.json` (`cuvara.vfx-recipe/1`),
+  `vfx-describe.schema.json`, `vfx-inspect.schema.json` and `vfx-capture.schema.json`.
+- Fixture `Tests/Fixtures/BurstQuads`: `BurstQuads.vfxrecipe.json` and the `BurstQuads.vfx` it
+  builds (one burst of 24 additive quads with a colour over life and an exposed `Tint` colour).
+- EditMode test assembly `Cuvara.VFX.Editor.Tests`: the internals guard, the envelope and batch
+  entry, catalog and describe determinism, recipe round trip and unknown names, coverage of every op
+  field (`RecipeCoverageTests`), the recipe schema, texture import determinism and failure cases,
+  inspect, and capture determinism (two captures with one seed).
+- PlayMode test assembly `Cuvara.VFX.Tests`: `VfxLibrary`, `VfxSocket`, `VfxPlayer`,
+  `ChainLightningBinder` and the presets.
 
-- `use_subgraph` no longer takes `settings`: the only setting of a subgraph node in VFX Graph 17.6 is
-  its asset (`m_Subgraph`), which `asset` sets; a recipe with `settings` fails with the valid fields.
-- An asset value given as an object takes only `guid` and `path`, and both must name the same asset;
-  any other field is an error that lists them. The recipe schema accepts `{"guid"}` and `{"path"}`
-  for `set_output` `texture`.
-- `catalog` lists the settings a model forwards (Initialize: `capacity`, `boundsMode` and the
-  other data settings; composed outputs: their topology and shading settings) through
-  `VFXModel.GetSettings`, the same list `set_setting` accepts.
-- `describe` also takes an absolute path inside a local package of the project (the repository
-  path of this package).
-- `Tools~/vfxcli.py` resolves path arguments (`recipe`, `asset`, `effect`, `source`, `target`,
-  `out`, `file`, `texture`) written relative to the current directory: a path inside the
-  repository is passed as `Packages/com.cuvara.vfx/...`, a path inside `Sandbox~/Assets` as
-  `Assets/...`, any other path (and every `out`) as an absolute path. `build` with
-  `Tests/Fixtures/BurstQuads/BurstQuads.vfxrecipe.json` from the repository root now works.
-- `.gitignore` ignores every `Sandbox~/Assets/CuvaraVfx*Temp*` folder and its `.meta`, which a
-  crashed build or test run can leave behind.
-- `Cuvara.VFX` and `Cuvara.VFX.Editor` also reference `Unity.RenderPipelines.Core.Runtime` and
-  `Unity.RenderPipelines.Universal.Runtime` (the lighting presets set URP Volume components); the
-  PlayMode test assembly references them too.
+#### Sandbox and tools
 
-### Fixed
+- Agent-owned `Sandbox~` Unity project (6000.6.9f1): URP 17.6.0 with HDR, Forward+, depth and
+  opaque textures, VFX Graph 17.6.0, Unity-MCP 1.7.0 from OpenUPM (with its NuGet DLLs committed),
+  Test Framework, Input System, linear colour space; settings created and checked by
+  `SandboxSetup.Apply()` / `Report()`.
+- `Tools~/setup-sandbox.py` and `Tools~/sandbox_paths.py`: an idempotent per-clone sandbox home
+  outside the repository (`Sandbox` link = the open path, `package` link = the package, referenced
+  as `file:../../package`), a hard error on any link cycle inside the repository, local Unity-MCP
+  configuration, and `--open` / `--watch` / `--close` with a memory guard (default 12 GB private
+  bytes) plus `--remove` / `--print-open-path`. Unity 6000.6 cannot map package scripts to classes
+  when the project path has a `~` or `.` component, so the Sandbox is always opened through the
+  open path.
+- `Tools~/vfxcli.py <verb> [--project] [--args | --json] [--out] [--mode] [--timeout]
+  [--memory-limit-gb]`: runs a verb through Unity-MCP `script-execute` when the Sandbox editor is
+  open (arguments and result through files), else through a batch-mode editor with graphics under
+  the memory guard; waits for pending verbs; rewrites path arguments relative to the current
+  directory; exit codes 0 ok, 1 ok false, 2 usage, 3 no editor.
 
-- `import-texture` over a read-only (or locked) existing target reported `could not be restored`
-  besides the import error, although the target was unchanged: the restore now writes the PNG and
-  `.meta` back only where they differ.
-- `check_metas.py` no longer reports the `.meta` files of the nested `Sandbox~` project (and later
-  `Samples~`) as orphans: its orphan pass only judges `.meta` files on Unity-visible paths.
+#### CI and documentation
+
+- `.github/workflows/ci.yml`: a `validate` job that needs no Unity licence (`package.json` fields,
+  CHANGELOG heading, `.meta` coverage, asmdef names, the JSON Schemas as valid draft 2020-12
+  schemas, committed recipes against the recipe schema, Python compile, workflow YAML) and game-ci
+  EditMode and PlayMode jobs on a copy of the Sandbox laid out like the open path
+  (`.github/scripts/ci_sandbox.py`), skipped when the `UNITY_LICENSE` secret is absent.
+  `check_metas.py` does not judge `.meta` files under dot or `~` paths (the nested `Sandbox~`
+  project, `Samples~`).
+- `Documentation~/AUTHORING.md` (the authoring guide, the verified pitfalls and the differences from
+  DESIGN.md), `CAPTURE.md`, `CI.md` and `DESIGN.md`.
