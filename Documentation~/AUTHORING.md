@@ -546,6 +546,22 @@ afterwards) inspect ran on 36 graphs and 3 prefabs, each twice with identical ou
 outputs had a shader, 15 a Shader Graph, and all 40 results validated against the schema with the
 Python `jsonschema` package.
 
+## Capture an effect
+
+`capture` plays an effect in a neutral stage made from code, with a fixed seed and time step, and
+writes one PNG per sample, `contact-sheet.png` and `stats.json`. Inputs, presets, outputs,
+determinism and limits: [CAPTURE.md](CAPTURE.md).
+
+```sh
+python Tools~/vfxcli.py capture --json '{"effect": "Tests/Fixtures/BurstQuads/BurstQuads.vfx", "seed": 1234}'
+# default out: Sandbox~/Captures/BurstQuads/seed-1234-gameplay-dusk (gitignored)
+```
+
+The verb runs across play mode: through the editor vfxcli.py waits for the job's `result_file`
+(about 15 s for BurstQuads), through a batch-mode editor for the editor to exit (about 30 s). The
+editor must be in edit mode, compiled, and run no other capture. Afterwards it is in edit mode
+again with the scenes it had. Look at the contact sheet yourself before reporting an effect.
+
 ## Pitfalls
 
 Each entry is a verified failure: symptom, cause, fix, file.
@@ -778,7 +794,8 @@ Each entry is a verified failure: symptom, cause, fix, file.
   `StandardRequest` into a render texture. Objects made for a check get `HideFlags.DontSave` in
   edit mode and are destroyed afterwards; an untitled scene cannot take an additive new scene
   (`Cannot create a new scene additively with an untitled scene unsaved`).
-- **File:** none (workflow; the capture verb owns the real procedure).
+- **File:** `Editor/Capture/VfxCaptureSession.cs` and `VfxCaptureStage.cs`: `capture` plays the effect in
+  play mode and reads the camera's render target (Documentation~/CAPTURE.md).
 
 ### Play mode in an unfocused Sandbox editor does not advance
 
@@ -790,7 +807,7 @@ Each entry is a verified failure: symptom, cause, fix, file.
   543. `PlayerSettings.runInBackground` stayed `False` after leaving play mode, so the project is
   not changed. With it, BurstQuads showed 24 alive particles about 0.3 s after `Reinit()`, a spread
   of orange additive quads in the render, and 0 after its lifetime.
-- **File:** none (workflow).
+- **File:** `Editor/Capture/VfxCaptureSession.cs` (`Begin` sets it for the capture and restores it).
 
 ### `Random` `Uniform` on a vector attribute puts particles on a line
 
@@ -872,6 +889,39 @@ Each entry is a verified failure: symptom, cause, fix, file.
   `render_settings`. Then 98 of 98 sample outputs had a shader.
 - **File:** `Editor/Bridge/VfxGraphBridge.Inspect.cs` (`InspectOutputs`), `Editor/Inspect/VfxInspect.cs`.
 
+### `aliveParticleCount` lags by up to 60 frames
+
+- **Symptom:** in play mode with `Time.captureDeltaTime` 1/60, BurstQuads (24 particles, lifetimes
+  0.6 to 0.9 s) reported 24 from frame 5 to frame 64 and then 0, with no value in between, although
+  particles die from 0.6 s. Held still (`playRate` 0) at its 40th simulated frame, the effect still
+  reported 24 for 19 frames, then 19 until the log stopped at frame 400. A capture that read the count
+  "when two frames agree" recorded stale counts.
+- **Cause:** VFX Graph reads the alive count back from the GPU only every 60 frames (measured,
+  not documented): the refresh frames stayed 5 and 65 with `captureDeltaTime` 1/30 instead of
+  1/60, and with `Application.targetFrameRate` 30 instead of about 190 frames per second (0.3 s and
+  2.1 s of real time), so the period counts frames, not game time or real time.
+  `VFXParticleSystemInfo.aliveCount` and `HasAnySystemAwake()` come from the same readback;
+  `VisualEffect` and `VFXManager` have no public or internal member to force it.
+- **Fix:** `capture` holds the effect still (`playRate` 0) for `settle_frames` (default 70, at
+  least 62) at every sample and probe, then reads the count: after a full period the readback is
+  of the held state. A `Single` burst still fires at `playRate` 0 (24 alive at t = 0). Two
+  captures with one seed then gave the same counts at every sample.
+- **File:** `Editor/Capture/VfxCaptureSession.cs` (`StepCore`), `Editor/Capture/VfxCaptureRequest.cs`
+  (`DefaultSettleFrames`, `MinSettleFrames`).
+
+### The first capture stage was too dark to judge an effect
+
+- **Symptom:** with the first dusk preset (key light 1.1 at 12 degrees, no post exposure) the ground
+  of the BurstQuads frames read 0.002 linear after the effect had ended (mean luminance 0.002 to
+  0.011): only the particles were visible. A key light of 2.0 at 50 degrees (day) gave a ground of
+  0.073 linear, 10.0 gave 0.45.
+- **Cause:** ACES tonemapping lowers the dark and middle range; a low key light on a horizontal
+  ground lights it at a grazing angle.
+- **Fix:** brighter presets (dusk key 1.6 at 20 degrees, brighter ambient) and post exposure
+  (+1 EV day and dusk, +0.75 EV night). Mean luminance of the 0.3 s frame: day 0.186, dusk 0.029,
+  night 0.015; the ground and backdrop read in all three.
+- **File:** `Runtime/Presets/VfxLightingPreset.cs`.
+
 ### Other observations
 
 - Never remove a link while an editor has the project open through it: the running editor
@@ -893,6 +943,15 @@ Each entry is a verified failure: symptom, cause, fix, file.
 - Unity 6000.6's analyzers warn `UAC0005` on `AppDomain.CurrentDomain.GetAssemblies()`; the guard
   tests find the VFX Graph editor assembly with `Type.GetType("UnityEditor.VFX.VFXGraph,
   Unity.VisualEffectGraph.Editor")` instead, so the test assembly does not reference it.
+- Entering play mode reloads the scripting domain in the Sandbox (`EditorSettings.enterPlayModeOptionsEnabled`
+  is false), so a verb cannot wait for play mode inside one `script-execute` call; `capture` stores
+  its job in `SessionState` and finishes after the reload (CAPTURE.md, "How it runs"). In an EditMode
+  test, `yield return new EnterPlayMode()` resumes the enumerator after the reload with its locals
+  reset (the Test Framework restores only the enumerator's state number), so a test creates
+  everything it needs after that yield (`CaptureTests`).
+- In the Sandbox's player loop, `VFXUpdate` runs in `PostLateUpdate` before `FinishFrameRendering`; a
+  step first in `EarlyUpdate` sees the previous frame simulated and rendered, and a `playRate` set
+  there applies to that frame's update.
 - NUnit in the Test Framework 1.8: `Is.Ordered.Using(StringComparer.Ordinal)` does not compile
   (`CS0121`, ambiguous between `Using(IComparer)` and `Using<T>(IComparer<T>)`); cast to
   `IComparer<string>`.

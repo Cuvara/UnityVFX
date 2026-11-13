@@ -1,0 +1,100 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Cuvara/UnityVFX/Schemas~/vfx-capture.schema.json",
+  "title": "com.cuvara.vfx capture statistics (stats.json)",
+  "description": "stats.json written by the capture verb next to contact-sheet.png and one PNG per sample. The final result of the verb holds the same fields plus the envelope (ok, verb, errors, warnings) and out, stats_file, probes, pending, job. Counts come from VisualEffect.aliveParticleCount read while the effect is held still, so they are never -1. Documentation~/CAPTURE.md.",
+  "type": "object",
+  "required": ["schema", "effect", "recipe_sha256", "seed", "delta_time", "camera", "lighting", "unity", "vfx_graph",
+               "duration_seconds", "alive", "bounds", "systems", "frames", "contact_sheet", "resolution", "probe_interval", "settle_frames"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": {"const": "cuvara.vfx-capture/1"},
+    "effect": {"type": "string", "description": "project path of the captured .prefab or .vfx (Assets/... or Packages/com.cuvara.vfx/...)", "pattern": "\\.(prefab|vfx)$"},
+    "recipe_sha256": {"description": "SHA-256 of the <name>.vfxrecipe.json next to the effect's .vfx, or null when there is none",
+                      "anyOf": [{"type": "null"}, {"$ref": "#/$defs/sha256"}]},
+    "seed": {"type": "integer", "minimum": 0, "maximum": 4294967295, "description": "VisualEffect.startSeed, resetSeedOnPlay off"},
+    "delta_time": {"type": "number", "exclusiveMinimum": 0, "maximum": 0.1, "description": "Time.captureDeltaTime, rounded to 6 decimals"},
+    "camera": {"enum": ["gameplay", "close", "side"]},
+    "lighting": {"enum": ["day", "dusk", "night"]},
+    "unity": {"type": "string", "minLength": 1},
+    "vfx_graph": {"type": "string", "minLength": 1},
+    "duration_seconds": {"description": "simulated time of the first probe after the peak with no particle alive and no system awake; null when the effect did not end by max_seconds or never had a particle",
+                         "anyOf": [{"type": "null"}, {"type": "number", "minimum": 0}]},
+    "alive": {
+      "type": "object",
+      "required": ["peak", "samples"],
+      "additionalProperties": false,
+      "properties": {
+        "peak": {"type": "integer", "minimum": 0, "description": "largest alive count at any sample or probe"},
+        "samples": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["t", "count"],
+            "additionalProperties": false,
+            "properties": {"t": {"type": "number", "minimum": 0}, "count": {"type": "integer", "minimum": 0}}
+          }
+        }
+      }
+    },
+    "bounds": {
+      "description": "world-space union of the bounds of every particle system at the checkpoints where it had particles; null when no particle was alive",
+      "anyOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "required": ["center", "size"],
+          "additionalProperties": false,
+          "properties": {"center": {"$ref": "#/$defs/vector3"}, "size": {"$ref": "#/$defs/vector3"}}
+        }
+      ]
+    },
+    "systems": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "capacity", "peak"],
+        "additionalProperties": false,
+        "properties": {
+          "name": {"type": "string", "description": "particle system name; prefixed with the VisualEffect's path in the prefab when the effect has several"},
+          "capacity": {"type": "integer", "minimum": 0},
+          "peak": {"type": "integer", "minimum": 0}
+        }
+      }
+    },
+    "frames": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["t", "file", "sha256", "mean_luminance", "max_luminance"],
+        "additionalProperties": false,
+        "properties": {
+          "t": {"type": "number", "minimum": 0},
+          "file": {"type": "string", "pattern": "^frame-[0-9]+\\.[0-9]{2}\\.png$"},
+          "sha256": {"$ref": "#/$defs/sha256"},
+          "mean_luminance": {"type": "number", "minimum": 0, "description": "Rec. 709 luminance of the linear render target after post-processing (tonemapped), mean over the frame"},
+          "max_luminance": {"type": "number", "minimum": 0}
+        }
+      }
+    },
+    "contact_sheet": {
+      "type": "object",
+      "required": ["file", "sha256", "columns"],
+      "additionalProperties": false,
+      "properties": {
+        "file": {"const": "contact-sheet.png"},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "columns": {"type": "integer", "minimum": 1}
+      }
+    },
+    "resolution": {"type": "array", "items": {"type": "integer", "minimum": 64}, "minItems": 2, "maxItems": 2, "description": "frame width and height in pixels"},
+    "probe_interval": {"type": "number", "exclusiveMinimum": 0, "description": "seconds between alive-count probes (whole frames)"},
+    "settle_frames": {"type": "integer", "minimum": 62, "description": "frames the effect is held still before a count is read"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "vector3": {"type": "array", "items": {"type": "number"}, "minItems": 3, "maxItems": 3}
+  }
+}

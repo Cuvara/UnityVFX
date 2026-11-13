@@ -33,6 +33,10 @@ Sandbox~/Assets or Sandbox~/Packages as Assets/... or Packages/..., and any othe
 path) as an absolute path. An absolute path inside Sandbox~/ is mapped the same way, because Unity sees
 the project through the open path, not through Sandbox~. Each rewrite is logged on stderr.
 
+A verb that runs across play mode (capture) answers through the editor with `"pending": true` and a
+`result_file`; vfxcli.py waits for that file (the editor writes it once it is back in edit mode) and
+prints the final result. Through a batch-mode editor the job writes the result and exits the editor.
+
 Exit codes: 0 ok, 1 the verb reported "ok": false (or the call into Unity failed), 2 usage,
 3 no editor available (no open path or package link, the project is open but Unity-MCP does not
 answer, or no Unity editor is installed for the project's version).
@@ -169,6 +173,39 @@ def run_in_editor(verb, args_path, out_path, project, timeout):
         return json.load(handle)
 
 
+PENDING_TIMEOUT = 900
+"""Default seconds to wait for the result of a pending verb (capture) through the editor."""
+
+
+def wait_for_pending(pending, still_running, editors, timeout):
+    """A verb that runs across play mode (capture) returns `"pending": true` and the `result_file` the
+    editor writes when it is back in edit mode. Wait for that file and return its result."""
+    result_file = pending.get("result_file")
+    if not result_file:
+        raise CliError(EXIT_FAILED, "the verb is pending but gave no result_file: " + tail(json.dumps(pending)))
+    log("pending job %s: waiting up to %d s for %s" % (pending.get("job"), timeout, result_file))
+    started = time.monotonic()
+    last_note = started
+    while True:
+        if os.path.isfile(result_file):
+            try:
+                with open(result_file, encoding="utf-8") as handle:
+                    result = json.load(handle)
+                log("pending job %s ended after %.0f s" % (pending.get("job"), time.monotonic() - started))
+                return result
+            except ValueError:
+                pass  # written through a temporary name; a partial read is retried
+        if time.monotonic() - started > timeout:
+            raise CliError(EXIT_FAILED, "no result in %s after %d s (the editor may still be in play mode)" % (result_file, timeout))
+        if time.monotonic() - last_note > 30:
+            last_note = time.monotonic()
+            if not still_running():
+                raise CliError(EXIT_FAILED, "the editor (PID %s) ended before the pending job wrote %s"
+                               % (", ".join(map(str, editors)), result_file))
+            log("still waiting for job %s (%.0f s)" % (pending.get("job"), time.monotonic() - started))
+        time.sleep(1)
+
+
 # ---------------------------------------------------------------- batch path
 
 
@@ -262,7 +299,8 @@ def parse_args(argv):
     parser.add_argument("--mode", choices=("auto", "editor", "batch"), default="auto",
                         help="auto (default): the open editor through Unity-MCP, else a batch-mode editor")
     parser.add_argument("--timeout", type=int, default=None,
-                        help="seconds for the verb (editor: default 280, at most 280; batch: default 1800)")
+                        help="seconds for the verb (editor: default 280, at most 280, and for a pending verb such "
+                             "as capture the wait for its result, default 900; batch: default 1800)")
     parser.add_argument("--memory-limit-gb", type=float,
                         default=float(os.environ.get("CUVARA_VFX_SANDBOX_MEMORY_LIMIT_GB", "12")),
                         help="batch mode: kill the editor above this many GB of private bytes (default 12)")
@@ -388,7 +426,10 @@ def main(argv=None):
             if not editors:
                 raise CliError(EXIT_NO_EDITOR, "no editor has %s open: %s" % (project, SETUP_HINT if is_sandbox else "open it first"))
             log("editor PID %s has %s open" % (", ".join(map(str, editors)), project))
-            result = run_in_editor(verb, args_path, out_path, project, options.timeout or 280)
+            result = run_in_editor(verb, args_path, out_path, project, min(options.timeout or 280, 280))
+            if result.get("pending") is True:
+                result = wait_for_pending(result, lambda: running_editors(setup, project, is_sandbox, root), editors,
+                                          options.timeout or PENDING_TIMEOUT)
         else:
             if editors:
                 raise CliError(EXIT_NO_EDITOR, "editor PID %s has %s open; a batch-mode editor cannot open it as well "

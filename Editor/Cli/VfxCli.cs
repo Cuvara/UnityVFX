@@ -28,6 +28,12 @@ namespace Cuvara.VFX.Editor
         /// <summary>Exit code of <see cref="Batch"/>: the command line was not usable (no verb, unreadable args file).</summary>
         public const int ExitUsage = 2;
 
+        /// <summary>
+        /// Return value of <see cref="BatchMain"/> when the verb left a pending job (<c>capture</c>): the
+        /// editor does not exit; the job writes <c>-vfxOut</c> and exits with 0 or 1 when it ends.
+        /// </summary>
+        internal const int ExitPending = -1;
+
         static readonly UTF8Encoding Utf8NoBom = new UTF8Encoding(false);
 
         /// <summary>
@@ -109,7 +115,8 @@ namespace Cuvara.VFX.Editor
         /// <summary>
         /// <c>-executeMethod Cuvara.VFX.Editor.VfxCli.Batch -vfxVerb &lt;verb&gt; [-vfxArgs &lt;file.json&gt;] [-vfxOut &lt;file.json&gt;]</c>.
         /// Writes the result to <c>-vfxOut</c> (or the log when absent) and exits the editor with
-        /// 0 (ok), 1 (ok false) or 2 (usage).
+        /// 0 (ok), 1 (ok false) or 2 (usage). A verb that leaves a pending job (<c>capture</c>) does not
+        /// exit here: the job writes <c>-vfxOut</c> and exits the editor when it ends.
         /// </summary>
         public static void Batch()
         {
@@ -123,6 +130,8 @@ namespace Cuvara.VFX.Editor
                 Debug.LogError("[vfxcli] " + Describe(exception));
                 code = ExitFailed;
             }
+            if (code == ExitPending)
+                return;
             EditorApplication.Exit(code);
         }
 
@@ -164,7 +173,13 @@ namespace Cuvara.VFX.Editor
             else
             {
                 output = Run(verb, jsonArgs);
-                code = Json.Parse(output) is JsonObject parsed && parsed.Get("ok") is bool ok && ok ? ExitOk : ExitFailed;
+                var parsed = Json.Parse(output) as JsonObject;
+                code = parsed != null && parsed.Get("ok") is bool ok && ok ? ExitOk : ExitFailed;
+                if (code == ExitOk && parsed.Get("pending") is bool pending && pending && Capture.VfxCaptureJob.AttachBatch(outPath))
+                {
+                    Debug.Log($"[vfxcli] {verb} is pending: the job writes {outPath} and exits the editor when it ends");
+                    return ExitPending;
+                }
             }
 
             if (!string.IsNullOrEmpty(outPath))

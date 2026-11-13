@@ -3,6 +3,8 @@
   "rootNamespace": "Cuvara.VFX.Tests",
   "references": [
     "Cuvara.VFX",
+    "Unity.RenderPipelines.Core.Runtime",
+    "Unity.RenderPipelines.Universal.Runtime",
     "UnityEngine.TestRunner",
     "UnityEditor.TestRunner"
   ],

@@ -4,7 +4,9 @@
   "references": [
     "Cuvara.VFX",
     "Unity.Testing.VisualEffectGraph.Editor",
-    "Unity.VisualEffectGraph.Runtime"
+    "Unity.VisualEffectGraph.Runtime",
+    "Unity.RenderPipelines.Core.Runtime",
+    "Unity.RenderPipelines.Universal.Runtime"
   ],
   "includePlatforms": [
     "Editor"

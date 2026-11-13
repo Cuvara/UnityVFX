@@ -2,7 +2,9 @@
   "name": "Cuvara.VFX",
   "rootNamespace": "Cuvara.VFX",
   "references": [
-    "Unity.VisualEffectGraph.Runtime"
+    "Unity.VisualEffectGraph.Runtime",
+    "Unity.RenderPipelines.Core.Runtime",
+    "Unity.RenderPipelines.Universal.Runtime"
   ],
   "includePlatforms": [],
   "excludePlatforms": [],

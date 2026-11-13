@@ -9,7 +9,7 @@ namespace Cuvara.VFX.Editor.Tests
     /// A small JSON Schema (2020-12) validator for the keywords the package schemas use: <c>$ref</c> to
     /// <c>#/$defs/...</c>, <c>type</c>, <c>const</c>, <c>enum</c>, <c>required</c>, <c>properties</c>,
     /// <c>additionalProperties</c>, <c>items</c>, <c>minItems</c>, <c>maxItems</c>, <c>pattern</c>,
-    /// <c>minLength</c>, <c>minimum</c>, <c>exclusiveMinimum</c>, <c>allOf</c>, <c>anyOf</c>,
+    /// <c>minLength</c>, <c>minimum</c>, <c>exclusiveMinimum</c>, <c>maximum</c>, <c>allOf</c>, <c>anyOf</c>,
     /// <c>oneOf</c>, <c>if</c>/<c>then</c>/<c>else</c>. An unknown keyword fails the validation, so a
     /// schema change cannot pass the tests by being ignored. CI validates with the Python
     /// <c>jsonschema</c> package (<c>.github/scripts/check_recipes.py</c>).
@@ -111,6 +111,10 @@ namespace Cuvara.VFX.Editor.Tests
                     case "exclusiveMinimum":
                         if (IsNumber(value) && Convert.ToDouble(value) <= Convert.ToDouble(pair.Value))
                             errors.Add($"{path}: not above {pair.Value}");
+                        break;
+                    case "maximum":
+                        if (IsNumber(value) && Convert.ToDouble(value) > Convert.ToDouble(pair.Value))
+                            errors.Add($"{path}: above {pair.Value}");
                         break;
                     case "allOf":
                         foreach (var part in (List<object>)pair.Value)

@@ -135,6 +135,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   describe hash, determinism, schema) and on a prefab made at test time (overrides, HDR override,
   an override texture, an override that matches no property, a prefab without a `VisualEffect`).
 - `Documentation~/AUTHORING.md`: Inspect an effect, two new pitfalls.
+- Verb `capture` (`effect` `.prefab` or `.vfx`, `seed`, `times`, `camera`, `lighting`, `out`, and
+  the optional `delta_time`, `width`, `height`, `columns`, `probe_interval`, `settle_frames`,
+  `max_seconds`, `timeout_seconds`): a deterministic play-test in a neutral stage made from code
+  (grey ground and backdrop, key and fill light, trilight ambient, a global Volume with Bloom, ACES
+  tonemapping, a light vignette and post exposure, a camera rendering into an `ARGBHalf` target
+  with post-processing on), in a scene of its own, with `Time.captureDeltaTime` fixed,
+  `resetSeedOnPlay` off and `startSeed` from the input. Writes one PNG per sample with its SHA-256
+  and mean and max luminance, `contact-sheet.png` and `stats.json`, schema
+  `Schemas~/vfx-capture.schema.json` (`cuvara.vfx-capture/1`). The effect is held still for
+  `settle_frames` (default 70) at every sample and every probe (default every 0.05 s), because VFX
+  Graph refreshes `aliveParticleCount` only every 60 frames, so counts are exact for the held state
+  and never -1: two captures with one seed give the same counts and byte-identical PNGs (editor and
+  batch path alike).
+- `VfxCaptureJob`: the verb returns at once with `"pending": true` and a `result_file`; the job
+  survives the domain reload of entering play mode in `SessionState`, runs the capture, leaves play
+  mode and then writes the final result. `VfxCli.Batch` does not exit for a pending verb: the job
+  writes `-vfxOut` and exits the editor with 0 or 1. `Tools~/vfxcli.py` waits for `result_file`
+  through the editor (`--timeout`, default 900 s for a pending verb).
+- Runtime presets shared with the Showcase: `VfxLightingPreset` (`day`, `dusk` default, `night`:
+  key and fill light, trilight ambient, background, Bloom, ACES, vignette, post exposure; `ApplyTo`
+  lights and a `VolumeProfile`, `ApplyAmbient`) and `VfxCameraPreset` (`gameplay` default, about
+  45 degrees at 10 m; `close`; `side`; `ApplyTo` a camera). `Get` returns a copy.
+- Tests: `CaptureTests` (EditMode; the determinism test enters play mode with `EnterPlayMode` and
+  captures BurstQuads twice with seed 1234: same peak 24, same counts, no -1, every file written and
+  hashed, stats.json valid against the schema; argument errors and defaults) and
+  `CapturePresetTests` (PlayMode assembly; names, defaults, copies, applying to a camera, lights and
+  a Volume profile). The test JSON Schema validator knows `maximum`.
+- `Documentation~/CAPTURE.md` and capture pitfalls in `Documentation~/AUTHORING.md`.
 
 ### Changed
 
@@ -155,6 +183,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Tests/Fixtures/BurstQuads/BurstQuads.vfxrecipe.json` from the repository root now works.
 - `.gitignore` ignores every `Sandbox~/Assets/CuvaraVfx*Temp*` folder and its `.meta`, which a
   crashed build or test run can leave behind.
+- `Cuvara.VFX` and `Cuvara.VFX.Editor` also reference `Unity.RenderPipelines.Core.Runtime` and
+  `Unity.RenderPipelines.Universal.Runtime` (the lighting presets set URP Volume components); the
+  PlayMode test assembly references them too.
 
 ### Fixed
 
