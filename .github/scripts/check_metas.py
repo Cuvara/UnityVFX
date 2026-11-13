@@ -12,7 +12,9 @@ for the same reason Unity skips them. That is also why `Sandbox~`, `Samples~`, `
 and `Documentation~` are out of scope.
 
 An orphan `.meta` (its asset is gone) is an error too: Unity deletes it on the next import and logs
-a warning, and the stale GUID can collide with a later asset.
+a warning, and the stale GUID can collide with a later asset. The orphan pass only judges `.meta`
+files on Unity-visible paths: a nested project such as `Sandbox~` (and later `Samples~`) commits its
+own `.meta` files, which are correct for that project and invisible to this package.
 
 Usage: check_metas.py [--root <package root>]
 """
@@ -57,12 +59,19 @@ def main():
         if directory + ".meta" not in have:
             missing.append(directory + "/")
 
+    # The orphan pass judges only .meta files whose asset path Unity sees from the package root.
+    # A .meta under a hidden or `~` path belongs to another Unity project (the nested Sandbox~
+    # project, the Samples~ that a consumer imports) and is judged by that project, not here.
     known = set(assets) | directories
     orphans = []
+    skipped_metas = 0
     for path in files:
         if not path.endswith(".meta"):
             continue
         base = path[: -len(".meta")]
+        if not unity_visible(base):
+            skipped_metas += 1
+            continue
         if base not in known:
             orphans.append(path)
 
@@ -84,7 +93,8 @@ def main():
 
     print(
         f"check_metas: OK, {len(assets)} Unity-visible file(s) and {len(directories)} folder(s) "
-        f"have a .meta, 0 orphan .meta file(s)."
+        f"have a .meta, 0 orphan .meta file(s); {skipped_metas} .meta file(s) under paths Unity "
+        f"does not see from the package (hidden or `~`) skipped."
     )
     return 0
 

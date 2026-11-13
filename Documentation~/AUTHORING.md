@@ -114,6 +114,96 @@ the links (links only) and an empty sandbox home.
 `Sandbox~/Assets/Plugins/NuGet` (the plugin's NuGet DLLs) is committed, as in the game client:
 without it the first open stops at Unity's compile-errors dialog (see Pitfalls).
 
+## Agent interface: `Tools~/vfxcli.py`
+
+Every verb (DESIGN.md, "Agent interface") runs through one command. It prints the result JSON on
+stdout and, with `--out`, writes the same text to a file; progress goes to stderr.
+
+```sh
+python Tools~/vfxcli.py catalog                                  # --project Sandbox~ is the default
+python Tools~/vfxcli.py catalog --json '{"filter": "spawn", "include_sub_variants": true}'
+python Tools~/vfxcli.py describe --json '{"asset": "Assets/Effects/Spark.vfx"}' --out spark.json
+python Tools~/vfxcli.py describe --args args.json --mode batch  # force a batch-mode editor
+```
+
+| Exit code | Meaning |
+|---|---|
+| 0 | `"ok": true` |
+| 1 | `"ok": false` (the errors say why), or the call into Unity failed |
+| 2 | usage: no verb, a verb name that is not `[a-z][a-z0-9-]*`, unreadable or non-object arguments |
+| 3 | no editor available: the open path or the package link is missing (the message names `python Tools~/setup-sandbox.py`), an editor has the project open but Unity-MCP does not answer, a batch run was asked while an editor has the project open, or Unity 6000.6.9f1 is not installed |
+
+- **Editor path** (`--mode editor`, or `auto` when this clone's Sandbox editor runs): the verb runs
+  through `unity-mcp-cli run-tool script-execute <open path>`, which calls `VfxCli.Run`. The
+  arguments and the result travel through files in a temporary folder, because script-execute cuts
+  a returned string at 20000 characters (see Pitfalls); the catalog is about 800 KB.
+- **Batch path** (`--mode batch`, or `auto` when no editor has the project open): `Unity.exe
+  -batchmode -projectPath <open path> -executeMethod Cuvara.VFX.Editor.VfxCli.Batch -vfxVerb <verb>
+  -vfxArgs <file> -vfxOut <file> -logFile <file>`, with graphics (never `-nographics`). vfxcli.py
+  watches its private bytes and kills that PID above the memory limit (12 GB by default). A batch
+  `catalog` took 14 s with a 1.7 GB peak; an editor `catalog` takes about 3 s.
+- The two paths give the same bytes: `catalog` through the editor and through a batch editor had
+  the same SHA-256.
+
+### Read a graph with `describe`
+
+`describe` gives every node a stable id in the serialised order of the graph's children: contexts
+`c0`, `c1`; their blocks `c0.b0`; operators `o0`; parameters `p0`; other models `x0`; systems
+`s0`. A slot is `<id>.<slot path>`, the path joining slot names with dots
+(`c1.b0._Position`, `o3.coordinate`, `c5.b0.A.x`). Math operators have output slots without a
+name; their address is `#<index>` (`o0.#0`). Each slot entry carries its address component as
+`ref`. Links are listed once, from the input side, sorted by `to`; flow links by `to`, `to_slot`.
+Two calls on the same asset gave byte-identical output for all 36 graphs of the VFX Graph samples.
+
+### What Unity's sample graphs show
+
+Read with `describe` from a gitignored scratch copy (`Sandbox~/Assets/Scratch`, deleted
+afterwards) of `Samples~/VFXGraphAdditions` (Lightning, Flames, Smoke, Sparks) and
+`Samples~/VFXLearningTemplates/VFX` (32 graphs) of the built-in VFX Graph 17.6.0 package. Their
+assets are under the Unity Companion License: never copy them into this repository.
+
+- **A system** is a chain of contexts joined by flow links, slot 0 to slot 0:
+  `VFXBasicSpawner` (context type `Spawner`, data `SpawnEvent`) -> `VFXBasicInitialize` (`Init`)
+  -> `VFXBasicUpdate` (`Update`) -> one or more outputs (`Output`). The spawner is a system of its
+  own (`data_type` `SpawnEvent`, capacity null); Initialize, Update and the outputs share one
+  particle system (`data_type` `Particle` or `ParticleStrip`) that holds `capacity`,
+  `boundsMode` and the strip settings. One Update can feed several outputs (`MultipleOutputs`: one
+  flow link from Update to each of three outputs).
+- **Spawning:** a burst is block `VFXSpawnerBurst` in the spawner, setting `repeat` `Single` or
+  `Periodic`, input `Count` (float; `Vector2` when `spawnMode` is `Random`) and `Delay`. A
+  continuous rate is `VFXSpawnerConstantRate` with input `Rate`. The spawner's own settings
+  `loopDuration` and `loopCount` (`Infinite`, `Constant`, `Random`) decide looping.
+- **GPU events** are slot links, not flow links: `TriggerEvent` in an Update (output `evt`) links
+  to the `evt` input of a `VFXBasicGPUEvent` context, which then has a flow link to its own
+  Initialize (Lightning: `c6.b1.evt -> c7.evt`, flow `c7 -> c8`).
+- **Attributes** are set with `SetAttribute` blocks: setting `attribute` (`lifetime`, `position`,
+  `velocity`, `color`, `alpha`, `size`, `scale`), `Composition` (`Overwrite`, `Add`, `Multiply`,
+  `Blend`), `Random` (`Off`, `Uniform`, `PerComponent`) and `Source`. The input slot is the
+  attribute name with a leading underscore (`_Lifetime`, `_Color`, `_Position`); a random block
+  has inputs `A` and `B` instead. The library names them `|Set|_Lifetime|Random Uniform`; catalog
+  prints the plain `title` "Set Lifetime Random Uniform" next to `name`.
+- **Colour over life** is block `AttributeFromCurve` with `attribute` `color`, `SampleMode`
+  `OverLife`, `ColorMode` (`Color`, `Alpha`, `ColorAndAlpha`) and `Composition` (usually
+  `Multiply` in an output, `Overwrite` in Initialize); its input `Color` is a `Gradient`. Alpha
+  over life is the same block with `attribute` `alpha` and an `AnimationCurve` input `Alpha`.
+  Sizes over life use `attribute` `size` with input `Size`. In the samples these blocks sit in the
+  output context more often than in Update.
+- **HDR colour** is a colour value above 1: Lightning sets `color` with
+  `[2.76, 34.89, 64]` (a `Vector3` input of `SetAttribute`), Sparks multiplies a gradient over life.
+- **Blend mode** is the output setting `blendMode`: `Opaque`, `Alpha`, `Additive`,
+  `AlphaPremultiplied` (across the samples: 40 Opaque, 39 Alpha, 17 Additive, 1 premultiplied).
+  `colorMapping` is `Default` or `GradientMapped` (then the output has a `gradient` input);
+  `useSoftParticle`, `sort`, `cullMode`, `zWriteMode`, `zTestMode` and `useAlphaClipping` sit next
+  to it. The texture is the output input `mainTexture` (unlit) or `baseColorMap` (URP Lit); the
+  default is `White1px` from `com.unity.render-pipelines.core`.
+- **Additive quads** (the fixture of the next subtask): `VFXPlanarPrimitiveOutput` with
+  `primitiveType` `Quad` and `blendMode` `Additive` (15 in the samples), most often with an
+  `Orient` block in `mode` `FaceCameraPlane` (6 of 15; 3 had no `Orient` block).
+- **Exposed parameters** are `VFXParameter` nodes (`exposed` true, `exposed_name`) whose output
+  slot `o` links into inputs (`p0.o -> o2.PositionMap`). Built-in values come from operators such
+  as `VFXDynamicBuiltInParameter` (`Delta Time (VFX)`) and `VFXAttributeParameter`
+  (`Get|_Position|Current`).
+
 ## Pitfalls
 
 Each entry is a verified failure: symptom, cause, fix, file.
@@ -255,6 +345,58 @@ Each entry is a verified failure: symptom, cause, fix, file.
   allocation of the code under test.
 - **File:** `Tests/Runtime/VfxPlayerTests.cs`.
 
+### `script-execute` cuts a returned string at 20000 characters
+
+- **Symptom:** a snippet that returns `new string('x', 30000)` comes back with 20000 characters and
+  the note `[truncated: 20000 of 30000 characters shown; return a slice or a summary]`. The
+  catalog result is about 800 KB.
+- **Cause:** Unity-MCP 1.7.0 bounds tool results (`Editor/Scripts/API/Tool/Script.Execute.cs`:
+  a string to 20000 characters, a JSON result over 131072 characters to its first 20000).
+- **Fix:** `vfxcli.py` never returns the result through the tool: the snippet reads the arguments
+  from a file, calls `VfxCli.Run` and writes the result to a file, and returns only its length.
+- **File:** `Tools~/vfxcli.py` (`run_in_editor`).
+
+### Reading settings of a library model can throw
+
+- **Symptom:** `catalog` warned `block UnityEditor.VFX.Block.ScreenSpaceSize (Size/Screen Space Size)
+  could not be read: NullReferenceException`, and that block was missing from the list (134
+  blocks instead of 135).
+- **Cause:** `VFXModel.GetSettings(false, ...)` evaluates `filteredOutSettings`; `ScreenSpaceSize`
+  reads `GetData()` of its parent context there, and the instance cached by `VFXLibrary` has no
+  parent.
+- **Fix:** the bridge lists settings from `VFXModel.GetFields(type)` (every field with
+  `VFXSetting` visible in the inspector or the graph) and computes `visible_by_default` in a
+  `try`; when it throws, `visible_by_default` is null. Catalog then has 135 blocks and no warning.
+- **File:** `Editor/Bridge/VfxGraphBridge.cs` (`CatalogSettings`).
+
+### `vfxcli.py` crashed printing the catalog on a Windows console
+
+- **Symptom:** `UnicodeEncodeError: 'charmap' codec can't encode character '\u03b5'` from
+  `sys.stdout.write` after the verb had succeeded; the process exited 1.
+- **Cause:** Python writes stdout in the console code page (cp1252); a library name holds `ε`.
+- **Fix:** vfxcli.py writes UTF-8 bytes to `sys.stdout.buffer`; result files are UTF-8 without BOM.
+- **File:** `Tools~/vfxcli.py` (`emit`).
+
+### Inline `--input` JSON with a Windows path
+
+- **Symptom:** `unity-mcp-cli run-tool script-execute ... --input '{"csharpCode": "... @\"C:\\Users\\..."}'`
+  failed with `--input must be valid JSON ... Bad escaped character in JSON at position 125`.
+- **Cause:** shell quoting and JSON escaping of backslashes inside a C# string in a JSON string;
+  one level is easily lost.
+- **Fix:** write the tool input with a JSON library to a file and pass `--input-file <absolute
+  path>`, as vfxcli.py does.
+- **File:** `Tools~/vfxcli.py` (`run_in_editor`).
+
+### The console still shows a compile error that is fixed
+
+- **Symptom:** after fixing `error CS0121` in a test and recompiling, `rql-query console | where
+  logType == 'Error'` still listed it, while `EditorUtility.scriptCompilationFailed` was `false`
+  and the test assembly was loaded.
+- **Cause:** the plugin's console buffer keeps old entries (see Other observations).
+- **Fix:** after a recompile, ask `script-execute` for `EditorUtility.scriptCompilationFailed`;
+  count console errors only after an editor restart (`setup-sandbox.py --close`, `--open`).
+- **File:** none (workflow).
+
 ### Other observations
 
 - Never remove a link while an editor has the project open through it: the running editor
@@ -270,3 +412,12 @@ Each entry is a verified failure: symptom, cause, fix, file.
   compile end: also wait for `isCompiling` and `isUpdating` to be false.
 - `run-tool --input-file` resolves a relative file against the current directory; use absolute
   paths in scripts that change directory.
+- `VFXLibrary.GetContexts()`, `GetBlocks()` and `GetOperators()` drop experimental entries unless
+  the editor preference "Experimental Operators/Blocks" is on. The bridge always drops them itself,
+  so `catalog` does not depend on that preference.
+- Unity 6000.6's analyzers warn `UAC0005` on `AppDomain.CurrentDomain.GetAssemblies()`; the guard
+  tests find the VFX Graph editor assembly with `Type.GetType("UnityEditor.VFX.VFXGraph,
+  Unity.VisualEffectGraph.Editor")` instead, so the test assembly does not reference it.
+- NUnit in the Test Framework 1.8: `Is.Ordered.Using(StringComparer.Ordinal)` does not compile
+  (`CS0121`, ambiguous between `Using(IComparer)` and `Using<T>(IComparer<T>)`); cast to
+  `IComparer<string>`.

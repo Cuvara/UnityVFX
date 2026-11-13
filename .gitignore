@@ -17,6 +17,12 @@
 /Sandbox~/.ai-game-dev/
 /Sandbox~/Assets/InitTestScene*.unity
 /Sandbox~/Assets/InitTestScene*.unity.meta
+# Scratch copies (for example Unity's sample graphs, read with describe; Unity Companion License: never
+# commit them) and temporary test assets. Delete the scratch copy when done.
+/Sandbox~/Assets/Scratch/
+/Sandbox~/Assets/Scratch.meta
+/Sandbox~/Assets/CuvaraVfxTestTemp/
+/Sandbox~/Assets/CuvaraVfxTestTemp.meta
 /Sandbox~/*.csproj
 /Sandbox~/*.sln
 /Sandbox~/*.slnx

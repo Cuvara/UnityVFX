@@ -35,3 +35,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   targets; null, destroyed and inactive targets skipped; missing properties skipped silently).
 - PlayMode test assembly `Cuvara.VFX.Tests` (gated by `UNITY_INCLUDE_TESTS`) for the four runtime
   types.
+- Bridge assembly `Unity.Testing.VisualEffectGraph.Editor` (the name VFX Graph 17.6 lets see its
+  internals) with `VfxGraphBridge` only: a version guard for VFX Graph 17.6.x, the library catalog
+  and the graph description, exposed as plain values (strings, numbers, lists and the ordered
+  `VfxGraphBridge.Map`), never as an internal type.
+- Editor assembly `Cuvara.VFX.Editor`: the agent entry point `VfxCli.Run(verb, jsonArgs)` (JSON
+  envelope `ok`, `verb`, `errors`, `warnings`, payload; never throws; an unknown verb lists the
+  valid ones; unused arguments become warnings) and `VfxCli.Batch()` for `-executeMethod`
+  (`-vfxVerb`, `-vfxArgs`, `-vfxOut`; exit code 0, 1 or 2), a verb registry that finds one
+  `IVfxVerb` class per file, a dependency-free JSON reader and writer with stable output, and the
+  read-only verbs `catalog` (contexts, blocks, operators and parameter types with variant, settings
+  with allowed values and defaults, and slots; recipe op names; VFX Graph version) and `describe`
+  (contexts, blocks, operators, parameters, settings, slot values, slot links, flow links, systems
+  with capacity, sticky notes and groups, with stable ids and ordering).
+- `Schemas~/vfx-describe.schema.json` for the `describe` result.
+- `Tools~/vfxcli.py <verb> [--project] [--args | --json] [--out] [--mode]`: runs a verb through
+  Unity-MCP `script-execute` when the Sandbox editor is open (arguments and result through files),
+  else through a batch-mode editor with graphics under the memory guard; exit codes 0 ok, 1 ok
+  false, 2 usage, 3 no editor.
+- EditMode test assembly `Cuvara.VFX.Editor.Tests` (gated by `UNITY_INCLUDE_TESTS`): the internals
+  guard, the envelope and batch entry, catalog content and determinism, describe determinism on a
+  temporary copy of VFX Graph's Simple Burst template.
+- `Documentation~/AUTHORING.md`: the agent interface, what Unity's sample graphs show about systems,
+  spawning, attributes, colour over life and blend modes, and new pitfalls.
+
+### Fixed
+
+- `check_metas.py` no longer reports the `.meta` files of the nested `Sandbox~` project (and later
+  `Samples~`) as orphans: its orphan pass only judges `.meta` files on Unity-visible paths.

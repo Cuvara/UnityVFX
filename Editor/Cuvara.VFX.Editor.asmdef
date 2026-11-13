@@ -1,0 +1,20 @@
+{
+  "name": "Cuvara.VFX.Editor",
+  "rootNamespace": "Cuvara.VFX.Editor",
+  "references": [
+    "Cuvara.VFX",
+    "Unity.Testing.VisualEffectGraph.Editor",
+    "Unity.VisualEffectGraph.Runtime"
+  ],
+  "includePlatforms": [
+    "Editor"
+  ],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": true,
+  "defineConstraints": [],
+  "versionDefines": [],
+  "noEngineReferences": false
+}
