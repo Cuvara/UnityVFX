@@ -473,6 +473,79 @@ Verified on 2026-11-13: a 48x40 opaque radial glow written by a script, imported
 runs `ok`, 32x16, `source_sha256` `b68857f7...` and `output_sha256` `77941d5f...` both times; the
 second run had `guid_stable` true.
 
+## Inspect an effect
+
+`inspect` reads the static facts of one effect that a lint judges: what the graph costs and how it
+looks before anyone plays it. It changes nothing. The output (schema
+`Schemas~/vfx-inspect.schema.json`, id `cuvara.vfx-inspect/1`) has no timestamp and a fixed order,
+so two calls on an unchanged effect give byte-identical JSON.
+
+```sh
+python Tools~/vfxcli.py inspect --json '{"effect": "Tests/Fixtures/BurstQuads/BurstQuads.vfx"}'
+python Tools~/vfxcli.py inspect --json '{"effect": "Effects/Spark/Spark.prefab"}' --out spark-inspect.json
+```
+
+`effect` is a `.vfx` asset or a `.prefab` with exactly one `VisualEffect` (anywhere in its
+hierarchy); a prefab with none or with several is an error (inspect each `.vfx` instead). The
+facts come from `describe` (the same walk, not a second one) and from
+`VfxGraphBridge.InspectOutputs` for what describe does not print.
+
+| Field | What it holds |
+|---|---|
+| `effect`, `asset`, `prefab` | the effect as given (`kind` `vfx` or `prefab`), the `.vfx` read, and for a prefab its path, GUID and the hierarchy path of the `VisualEffect` (`InspectFixture/Fx`) |
+| `recipe` | `<Name>.vfxrecipe.json` next to `<Name>.vfx` with the SHA-256 of its bytes (the `recipe_sha256` of `build`), or null |
+| `vfx_graph`, `unity`, `build_target` | versions, and the active build target the texture formats were imported for |
+| `describe_sha256` | SHA-256 of the compact JSON `describe` returns for the asset: the same value as the `describe_sha256` of `build` |
+| `systems` | describe id, the name VFX Graph uses (the author's title, else `System`, `System (1)`, ...), `data_type`, `capacity` (null for a spawner), member contexts and outputs |
+| `outputs` | per context of type `Output`: describe id, system, context type, name, label, `blend_mode` (null for a static mesh output), `shader`, `shader_graph`, `effective`, `render_settings` |
+| `textures` | each texture once (ordered by path): path, GUID, type, size, `depth`, `format` (GraphicsFormat), `texture_format`, `srgb`, `mip_maps`, `mip_count`, `compression`, `crunched`, `compressed_format`, `max_size`, `readable`, `importer`, `estimated_bytes`, `used_by` |
+| `exposed_properties` | exposed input parameters in describe order: id, exposed name, type, category, `default`, `overridden`, `overrides` (the prefab's property-sheet entries: name, sheet, value) |
+| `hdr_colors` | colour values with a channel above 1: `source` (`parameter`, `slot`, `prefab_override`), `path`, `name`, `type`, `rgba`, `peak`, `intensity` |
+| `totals` | counts, the sum of capacities, the sum of `estimated_bytes`, `hdr_peak` |
+
+- **`shader`** is the shader the output renders with: the one VFX Graph generated, a sub-asset of
+  the `.vfx` named `Hidden/VFX/<asset>/<system>/[<letter>/]<context label or name>` (`path` and
+  `guid` are the `.vfx`'s), or, for a `VFXStaticMeshOutput`, the shader it was given. Null with a
+  warning when the graph has not been compiled. `shader_graph` is the `.shadergraph` of a Shader
+  Graph output.
+- **`effective`** applies VFX Graph's own rules: `sorted` is true for `sort` `On`, or `Auto` with
+  `Alpha` or `AlphaPremultiplied` blending (BurstQuads, additive with `Auto`: false);
+  `soft_particles` needs a transparent output; sorting also forces `indirect_draw`. A feature the
+  output type does not have is null.
+- **`render_settings`** are the output's settings the inspector or the graph shows in its current
+  configuration (`GetSettings` without hidden ones), by their VFX Graph names, in declaration
+  order: `sort`, `useSoftParticle`, `castShadows`, `cullMode`, `zWriteMode`, `zTestMode`,
+  `useAlphaClipping`, `primitiveType`, `uvMode`, `indirectDraw`, `computeCulling`, ... A setting
+  hidden by another one (`sortMode` while `sort` is `Auto`) is left out.
+- **`textures`** are the texture values of parameters, of input slots without a link (a linked
+  slot's own value is not used) and of the prefab's overrides. `used_by` lists the describe
+  address (`c3.mainTexture`), the parameter id (`p0`) or `prefab:<override name>`.
+  `estimated_bytes` is the GPU size of all mip levels from the size, the mip count and the format
+  (`GraphicsFormatUtility.ComputeMipmapSize`; times 6 for a cubemap, times the slices of an array):
+  128 x 128 RGBA32 with 8 mips gives 87380. A `readable` texture keeps a CPU copy as well.
+- **`hdr_colors`** come from `Color` and `Gradient` parameters and slots, and from `Vector3` /
+  `Vector4` parameters and slots whose name contains `color` or `colour` (`_Color` of a
+  `SetAttribute` color block). A gradient key adds `.color_keys.<index>` to the path. `peak` is the
+  largest of r, g, b; `intensity` is `log2(peak)`, the Intensity of Unity's HDR colour picker,
+  rounded to 4 decimals. Alpha is null for a `Vector3`.
+- **Prefab overrides** are read from the `VisualEffect`'s serialised property sheet
+  (`m_PropertySheet.<sheet>.m_Array`, entries with `m_Overridden` on), the place the
+  `VisualEffect` inspector writes them. A struct property is stored as `<name>_<field>`
+  (`Initial Velocity_vector`). An override whose name matches no exposed property (left behind
+  after a property was renamed) is a warning; a texture it references is still listed.
+- The bridge assembly references `Unity.ShaderGraph.Editor`, because the Shader Graph of an
+  output is a `ShaderGraphVfxAsset` (`VFXShaderGraphHelpers.GetShaderGraph`).
+
+BurstQuads (`python Tools~/vfxcli.py inspect`, 2026-11-13): system `System (1)` capacity 32, one
+`VFXPlanarPrimitiveOutput` with `blend_mode` `Additive`, shader
+`Hidden/VFX/BurstQuads/System (1)/Output Particle Unlit Quad`, `sorted` false, the texture
+`DefaultDot.tga` (128 x 128, `R8G8B8A8_SRGB`, 87380 bytes) on `c3.mainTexture`, the exposed `Tint`
+`[4, 2, 0.5, 1]` and one HDR value (peak 4, intensity 2), `describe_sha256` `1224b507...`; two runs
+gave the same SHA-256 (`90ae59a0...`). On a scratch copy of the VFX Graph samples (deleted
+afterwards) inspect ran on 36 graphs and 3 prefabs, each twice with identical output; 98 of 98
+outputs had a shader, 15 a Shader Graph, and all 40 results validated against the schema with the
+Python `jsonschema` package.
+
 ## Pitfalls
 
 Each entry is a verified failure: symptom, cause, fix, file.
@@ -771,6 +844,34 @@ Each entry is a verified failure: symptom, cause, fix, file.
   with the fix.
 - **File:** `Editor/Texture/VfxTextureImport.cs` (`Restore`).
 
+### Generated shaders of a system with several outputs were not found
+
+- **Symptom:** the first `inspect` over the VFX Graph sample graphs found no shader for 48 of 98
+  outputs, with warnings such as `c5: no generated shader named
+  'Hidden/VFX/FlipbookMode/Flibook Flame/Output Particle Unlit Quad'`, while the asset holds
+  `Hidden/VFX/FlipbookMode/Flibook Flame/B/Output Particle Unlit Quad`. Single-output systems
+  (BurstQuads) matched.
+- **Cause:** VFX Graph 17.6 names a generated shader `Hidden/VFX/<asset>/<system>/<letter>/<context>`
+  when a system has several contexts of one type (`VFXGraphCompiledData.SaveShaderFiles`). The
+  letter (`VFXContext.letter`) is not serialised: `VFXGraph.PrepareGraph` assigns it with
+  `SyncContextLetters()` before a compile, so a graph loaded from disk has none.
+- **Fix:** `InspectOutputs` calls `graph.systemNames.Sync(graph)` and `graph.SyncContextLetters()`
+  (both refresh in-memory state only) before it builds the names. The same run then matched 97 of
+  98 outputs; the last one is the next entry.
+- **File:** `Editor/Bridge/VfxGraphBridge.Inspect.cs` (`InspectOutputs`).
+
+### A static mesh output's shader is not in its settings
+
+- **Symptom:** for a `VFXStaticMeshOutput` (sample `CollisionAdvanced`, context `c3`), `describe`
+  prints the setting `shader` as null and no generated shader matches the output's name.
+- **Cause:** the output renders with a shader the author picks; its `shader` setting field is not
+  serialised (`// not serialized here but in VFXDataMesh`) and the value lives on the system's
+  `VFXDataMesh.shader`. VFX Graph generates no shader for that output.
+- **Fix:** `InspectOutputs` reports `VFXDataMesh.shader` (here `Hidden/SG_Hand` from
+  `SG_Hand.shadergraph`) with `expected_shader` null; `inspect` leaves `shader` out of
+  `render_settings`. Then 98 of 98 sample outputs had a shader.
+- **File:** `Editor/Bridge/VfxGraphBridge.Inspect.cs` (`InspectOutputs`), `Editor/Inspect/VfxInspect.cs`.
+
 ### Other observations
 
 - Never remove a link while an editor has the project open through it: the running editor
@@ -801,3 +902,8 @@ Each entry is a verified failure: symptom, cause, fix, file.
   (`p0.o -> c3.b1._Color` in BurstQuads) and the graph compiles.
 - `build` fails on any error logged during its compile and import, also one from another source,
   so a busy editor can fail a clean graph; the log line is in the errors with the prefix `log:`.
+- The prefabs of `Samples~/VFXLearningTemplates/Prefabs/VFXG` nest prefabs of other sample sets
+  (`TurntableWithBackdrop_VFX` is a variant of a prefab that is not in the package). Copied alone
+  into a scratch folder, 32 of them import with `Missing Nested Prefab Asset` errors and hold no
+  `VisualEffect`; `inspect` reports `has no VisualEffect component`, which is right. Their import
+  errors stay in the console buffer after the scratch folder is deleted: restart the editor.

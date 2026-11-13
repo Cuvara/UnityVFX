@@ -416,17 +416,8 @@ namespace Cuvara.VFX.Editor.Bridge
 
             var ids = AssignIds(graph, out var contexts, out var operators, out var parameters, out var others);
 
-            // Systems: one per VFXData, in the order of their first context.
-            var systemIds = new Dictionary<VFXData, string>();
+            var systemIds = SystemIds(contexts);
             var systems = new List<object>();
-            foreach (var context in contexts)
-            {
-                var data = SafeData(context);
-                if (data == null || systemIds.ContainsKey(data))
-                    continue;
-                var id = "s" + systemIds.Count;
-                systemIds[data] = id;
-            }
             foreach (var pair in systemIds.OrderBy(p => int.Parse(p.Value.Substring(1), CultureInfo.InvariantCulture)))
                 systems.Add(DescribeSystem(pair.Key, pair.Value, contexts, ids, warnings));
 
@@ -510,6 +501,20 @@ namespace Cuvara.VFX.Editor.Bridge
                 }
             }
             return ids;
+        }
+
+        /// <summary>The describe system ids: one per <c>VFXData</c>, <c>s0</c>, <c>s1</c>, in the order of their first context.</summary>
+        static Dictionary<VFXData, string> SystemIds(List<VFXContext> contexts)
+        {
+            var systemIds = new Dictionary<VFXData, string>();
+            foreach (var context in contexts)
+            {
+                var data = SafeData(context);
+                if (data == null || systemIds.ContainsKey(data))
+                    continue;
+                systemIds[data] = "s" + systemIds.Count;
+            }
+            return systemIds;
         }
 
         static VFXData SafeData(VFXContext context)

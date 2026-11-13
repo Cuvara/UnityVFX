@@ -34,9 +34,25 @@ namespace Cuvara.VFX.Editor.Verbs
             var asset = ToProjectPath(args.GetString("asset", required: true));
             var warnings = new List<string>();
             var graph = VfxGraphBridge.Describe(asset, warnings);
+            Fill(result, graph, warnings);
+        }
+
+        /// <summary>
+        /// The result <c>VfxCli.Run("describe", ...)</c> gives for a graph that
+        /// <see cref="VfxGraphBridge.Describe"/> already read, so another verb (<c>inspect</c>) can hash the
+        /// describe JSON without a second walk of the graph.
+        /// </summary>
+        internal static VfxResult ToResult(VfxGraphBridge.Map graph, IEnumerable<string> warnings)
+        {
+            var result = new VfxResult("describe");
+            Fill(result, graph, warnings);
+            return result;
+        }
+
+        static void Fill(VfxResult result, VfxGraphBridge.Map graph, IEnumerable<string> warnings)
+        {
             foreach (var warning in warnings)
                 result.Warning(warning);
-
             result.Set("schema", Schema);
             foreach (var pair in graph)
                 result.Set(pair.Key, pair.Value);

@@ -114,6 +114,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   file of another size, a flipbook grid that does not divide the resized image, a read-only target)
   leaves the PNG and its `.meta` with the same SHA-256.
 - `Documentation~/AUTHORING.md`: Subgraphs, asset values, op coverage, a new pitfall.
+- Verb `inspect` (`effect`: a `.prefab` that holds one `VisualEffect`, or a `.vfx`): the static
+  facts a lint reads, schema `Schemas~/vfx-inspect.schema.json` (`cuvara.vfx-inspect/1`). Systems
+  with their VFX Graph name, capacity and outputs; per output its type, blend mode, the shader it
+  renders with (the generated sub-asset, or a static mesh output's shader), its Shader Graph, its
+  effective render features (sorted, indirect draw, shadow casting, soft particles, motion vector,
+  alpha clipping, flipbook, strips, ray traced) and the render settings it shows; every texture of
+  the graph and of the prefab's overrides with size, format, sRGB, mip maps, compression,
+  readability and estimated GPU bytes; exposed properties with their default and the prefab's
+  overrides; HDR colour values (Color, Gradient keys and colour vectors with a channel above 1) of
+  parameters, slots and overrides with RGBA, peak and intensity; the recipe next to the `.vfx` with
+  its SHA-256; `describe_sha256`; totals. No timestamp; two calls give the same JSON (verified on
+  BurstQuads and on 36 graphs and 3 prefabs of the VFX Graph samples).
+- Bridge: `VfxGraphBridge.InspectOutputs` (unique system names, the context letters VFX Graph
+  assigns before a compile, generated shader per output, Shader Graph, visible settings, effective
+  features) and `PlainValue`; the bridge assembly references `Unity.ShaderGraph.Editor` for the
+  Shader Graph asset type.
+- EditMode tests `InspectVerbTests` on the BurstQuads fixture (capacity, output type, additive blend,
+  generated shader, exposed `Tint` and its default, the HDR value, texture facts, recipe hash,
+  describe hash, determinism, schema) and on a prefab made at test time (overrides, HDR override,
+  an override texture, an override that matches no property, a prefab without a `VisualEffect`).
+- `Documentation~/AUTHORING.md`: Inspect an effect, two new pitfalls.
 
 ### Changed
 
