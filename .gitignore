@@ -21,8 +21,9 @@
 # commit them) and temporary test assets. Delete the scratch copy when done.
 /Sandbox~/Assets/Scratch/
 /Sandbox~/Assets/Scratch.meta
-/Sandbox~/Assets/CuvaraVfxTestTemp/
-/Sandbox~/Assets/CuvaraVfxTestTemp.meta
+# Temporary folders of the recipe builder (CuvaraVfxBuildTemp), the texture import and the tests
+# (CuvaraVfx*TestTemp); a crash or a killed editor can leave them behind. The pattern covers their .meta.
+/Sandbox~/Assets/CuvaraVfx*Temp*
 /Sandbox~/*.csproj
 /Sandbox~/*.sln
 /Sandbox~/*.slnx

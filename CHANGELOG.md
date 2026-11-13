@@ -81,6 +81,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - EditMode tests: recipe round trip and determinism, unknown names (block type, setting, slot, op,
   id, variant) leaving the previous asset byte-identical, `apply` on describe ids, the recipe schema
   against the fixture and against the builder's op list (with a small JSON Schema validator).
+- Verb `import-texture` (`source` PNG, `target` `.png` asset, ordered `transform`): the steps
+  `luminance_to_alpha` (`color`: `keep`, `white`, `unpremultiply`), `premultiply`, `pack_channels`
+  (`r`, `g`, `b`, `a` from a constant or a file and channel), `resize_pot` (`max_size`; area
+  average), `flipbook` (`columns`, `rows`, checked against the output size), `wrap` (`u`, `v` or
+  `mode`: `repeat`, `clamp`), `linear` and `srgb`. The pixel steps run on managed byte arrays in
+  integer arithmetic, so the output bytes are the same on every run. The verb writes the PNG and
+  its `TextureImporter` settings (sRGB, alpha source, alpha is transparency, wrap, mip maps, max
+  size, compression) and returns the SHA-256 of the source, of every `pack_channels` input and of
+  the output, the sizes, the applied steps and the import settings. An unknown step, parameter or
+  value fails with the valid names, nearest first (`step_error`); a failed import leaves an
+  existing target untouched. `catalog` prints `texture_steps` and `texture_step_fields`.
+- EditMode tests for `import-texture`: output hash determinism, `luminance_to_alpha`,
+  `premultiply`, `pack_channels` and `resize_pot` on known pixels, importer settings for linear,
+  sRGB and wrap, and the failure cases on PNGs the tests write themselves.
 
 ### Changed
 
@@ -89,6 +103,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `VFXModel.GetSettings`, the same list `set_setting` accepts.
 - `describe` also takes an absolute path inside a local package of the project (the repository
   path of this package).
+- `Tools~/vfxcli.py` resolves path arguments (`recipe`, `asset`, `effect`, `source`, `target`,
+  `out`, `file`, `texture`) written relative to the current directory: a path inside the
+  repository is passed as `Packages/com.cuvara.vfx/...`, a path inside `Sandbox~/Assets` as
+  `Assets/...`, any other path (and every `out`) as an absolute path. `build` with
+  `Tests/Fixtures/BurstQuads/BurstQuads.vfxrecipe.json` from the repository root now works.
+- `.gitignore` ignores every `Sandbox~/Assets/CuvaraVfx*Temp*` folder and its `.meta`, which a
+  crashed build or test run can leave behind.
 
 ### Fixed
 

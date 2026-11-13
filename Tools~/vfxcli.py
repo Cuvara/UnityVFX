@@ -25,6 +25,14 @@ interface"). It is printed on stdout (indented JSON) and, with --out, written to
 same text, so two runs on the same input give the same bytes. Which runner was used (editor PID,
 batch exit code, time, peak memory) goes to stderr with the rest of the progress.
 
+Path arguments (the keys recipe, asset, effect, source, target, out, file and texture, at any depth of
+the arguments) may be written as DESIGN.md writes them, relative to the current directory. A relative
+path that does not start with Assets/ or Packages/ is resolved against the current directory; a path
+inside the repository is then passed as Packages/<package name>/<path in the repository>, a path inside
+Sandbox~/Assets or Sandbox~/Packages as Assets/... or Packages/..., and any other path (and every `out`
+path) as an absolute path. An absolute path inside Sandbox~/ is mapped the same way, because Unity sees
+the project through the open path, not through Sandbox~. Each rewrite is logged on stderr.
+
 Exit codes: 0 ok, 1 the verb reported "ok": false (or the call into Unity failed), 2 usage,
 3 no editor available (no open path or package link, the project is open but Unity-MCP does not
 answer, or no Unity editor is installed for the project's version).
@@ -277,7 +285,65 @@ def read_verb_args(options):
         raise CliError(EXIT_USAGE, "the arguments are not valid JSON: %s" % error)
     if not isinstance(value, dict):
         raise CliError(EXIT_USAGE, "the arguments must be a JSON object")
+    changes = []
+    value = resolve_path_args(value, sp.repo_root(), os.getcwd(), changes)
+    for key, before, after in changes:
+        log("path argument %s: %s -> %s" % (key, before, after))
     return json.dumps(value, ensure_ascii=False)
+
+
+PATH_KEYS = ("recipe", "asset", "effect", "source", "target", "out", "file", "texture")
+"""Argument keys whose string values are paths; rewritten by `resolve_path_args` at any depth."""
+
+ABSOLUTE_KEYS = ("out",)
+"""Path keys the verb writes with plain file IO (a folder for results): always passed as absolute paths."""
+
+
+def package_name(root):
+    try:
+        with open(os.path.join(root, "package.json"), encoding="utf-8-sig") as handle:
+            name = json.load(handle).get("name")
+    except (OSError, ValueError, AttributeError):
+        name = None
+    return name if isinstance(name, str) and name else sp.PACKAGE_NAME
+
+
+def resolve_path(key, value, root, cwd):
+    """The form of one path argument the verbs accept (see the module docstring)."""
+    if not isinstance(value, str) or not value.strip():
+        return value
+    text = value.strip().replace("\\", "/")
+    project_form = text.startswith("Assets/") or text == "Assets" or text.startswith("Packages/")
+    if project_form and not os.path.isabs(text):
+        return value
+    rooted = os.path.isabs(text)
+    full = os.path.normpath(text if rooted else os.path.join(cwd, text))
+    sandbox = sp.sandbox_dir(root)
+    if sp.is_inside(full, sandbox):
+        relative = os.path.relpath(full, sandbox).replace("\\", "/")
+        if key not in ABSOLUTE_KEYS and (relative.startswith("Assets/") or relative == "Assets" or relative.startswith("Packages/")):
+            return relative
+        return full.replace("\\", "/")
+    if rooted:
+        return value
+    if key not in ABSOLUTE_KEYS and sp.is_inside(full, root):
+        relative = os.path.relpath(full, root).replace("\\", "/")
+        return "Packages/" + package_name(root) + ("" if relative == "." else "/" + relative)
+    return full.replace("\\", "/")
+
+
+def resolve_path_args(value, root, cwd, changes, key=None):
+    """`value` with every path argument rewritten by `resolve_path`; (key, before, after) appended to `changes`."""
+    if isinstance(value, dict):
+        return {k: resolve_path_args(v, root, cwd, changes, k) for k, v in value.items()}
+    if isinstance(value, list):
+        return [resolve_path_args(item, root, cwd, changes, key) for item in value]
+    if key in PATH_KEYS and isinstance(value, str):
+        resolved = resolve_path(key, value, root, cwd)
+        if resolved != value:
+            changes.append((key, value, resolved))
+        return resolved
+    return value
 
 
 def emit(result, out):

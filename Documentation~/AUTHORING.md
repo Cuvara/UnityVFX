@@ -144,6 +144,15 @@ python Tools~/vfxcli.py describe --args args.json --mode batch  # force a batch-
   `catalog` took 14 s with a 1.7 GB peak; an editor `catalog` takes about 3 s.
 - The two paths give the same bytes: `catalog` through the editor and through a batch editor had
   the same SHA-256.
+- **Path arguments** (`recipe`, `asset`, `effect`, `source`, `target`, `out`, `file`, `texture`, at
+  any depth of the arguments) may be written relative to the shell's current directory, as the
+  examples in this file and DESIGN.md do. vfxcli.py rewrites them before the call and logs each
+  rewrite on stderr: a path inside the repository becomes `Packages/com.cuvara.vfx/<path>`, a path
+  inside `Sandbox~/Assets` or `Sandbox~/Packages` becomes `Assets/...` or `Packages/...` (also when
+  given as an absolute path: the editor sees the project through the open path, not `Sandbox~`),
+  any other path becomes absolute, and `out` is always absolute. Paths that already start with
+  `Assets/` or `Packages/` are passed unchanged. `VfxCli.Run` itself does not do this: its current
+  directory is the project.
 
 ### Read a graph with `describe`
 
@@ -213,15 +222,18 @@ the same folder. The worked example is the fixture
 0.6 to 0.9 s, capacity 32, colour over life, one exposed colour `Tint`).
 
 ```sh
+python Tools~/vfxcli.py build --json '{"recipe": "Tests/Fixtures/BurstQuads/BurstQuads.vfxrecipe.json"}'
 python Tools~/vfxcli.py build --json '{"recipe": "Packages/com.cuvara.vfx/Tests/Fixtures/BurstQuads/BurstQuads.vfxrecipe.json"}'
 python Tools~/vfxcli.py build --json '{"recipe": "C:/Workspaces/UnityIndie/UnityVFX/Effects/Spark/Spark.vfxrecipe.json"}'
 python Tools~/vfxcli.py apply --args ops.json   # {"asset": "...", "ops": [...]}
 ```
 
-Paths are project-relative (`Assets/...`, `Packages/com.cuvara.vfx/...`) or absolute. An absolute
-path inside the repository resolves through the package (the nearest `package.json` that names a
-registered package), so the repository path and the `<sandbox home>/package` path both work. A path
-relative to the shell's current directory does not (see Pitfalls).
+The verbs take project-relative paths (`Assets/...`, `Packages/com.cuvara.vfx/...`) or absolute
+ones. An absolute path inside the repository resolves through the package (the nearest
+`package.json` that names a registered package), so the repository path and the
+`<sandbox home>/package` path both work. Through vfxcli.py a path relative to the shell's current
+directory works too (Agent interface, path arguments); through `VfxCli.Run` it does not (see
+Pitfalls).
 
 ### Top level
 
@@ -323,6 +335,101 @@ Result payload: `recipe`, `recipe_sha256`, `recipe_id` (build only), `asset` (`p
 A recipe is deterministic in its graph, not in its bytes: two builds gave the same
 `describe_sha256` (`1224b507...`, twice) and different `.vfx` SHA-256 (see Pitfalls). Compare
 `describe` output, not file hashes.
+
+## Texture import
+
+`import-texture` turns a generated PNG (usually opaque, the effect on black) into an effect texture:
+it runs an ordered list of steps on the pixels, writes the result as a PNG asset and sets its import
+settings. The result records the SHA-256 of the source and of the output, so a delivery record can
+prove which approved generation produced which game texture.
+
+```sh
+python Tools~/vfxcli.py import-texture --args glow.json
+```
+
+```json
+{
+  "source": "C:/gen/runs/2026-11-13/glow_00001.png",
+  "target": "Effects/Spark/Spark_Glow.png",
+  "transform": [
+    {"step": "luminance_to_alpha", "color": "unpremultiply"},
+    "premultiply",
+    {"step": "resize_pot", "max_size": 256},
+    {"step": "flipbook", "columns": 4, "rows": 4},
+    {"step": "wrap", "mode": "clamp"},
+    "srgb"
+  ]
+}
+```
+
+| Argument | Required | Meaning |
+|---|---|---|
+| `source` | yes | a PNG: project-relative (`Assets/...`, `Packages/<package>/...`) or absolute (anywhere, for example a generator's output folder) |
+| `target` | yes | the `.png` asset to write: project-relative, or absolute inside the project or a local package (the repository) |
+| `transform` | no | the steps, run in order; each a step name (`"premultiply"`) or an object `{"step": name, ...parameters}` |
+
+### Steps
+
+Names and parameters are also printed by `catalog` (`texture_steps`, `texture_step_fields`).
+
+| Step | Parameters | Does |
+|---|---|---|
+| `luminance_to_alpha` | `color`: `keep` (default), `white`, `unpremultiply` | alpha = Rec. 709 luminance of RGB, `(2126 R + 7152 G + 722 B + 5000) / 10000`; `white` sets RGB to 255; `unpremultiply` divides RGB by the new alpha (`min(255, round(c * 255 / a))`, 0 where alpha is 0), so an image on black becomes straight alpha |
+| `premultiply` | none | RGB = `round(c * a / 255)` |
+| `pack_channels` | `r`, `g`, `b`, `a`: at least one | each named channel from a constant in [0, 1] (`round(v * 255)`) or a source `{"file": path, "channel": name}` with the channel `r`, `g`, `b`, `a` or `luminance`; without `file` the source is the image before this step (so channels can be swapped); a file must have the image's size at this step; unnamed channels are kept |
+| `resize_pot` | `max_size`: a power of two, default 16384 | each axis to its nearest power of two (n goes to p when n * n < 2 * p * p for the power of two p <= n < 2p, else to 2p: 5 to 4, 6 to 8, 700 to 512), then both axes halved until neither exceeds `max_size`; an exact area average (box filter) in integers, rounded once |
+| `flipbook` | `columns`, `rows` (required) | records the frame grid in the result (`flipbook`: columns, rows, frames, frame size); the output width must divide by `columns` and the height by `rows`, checked after every step |
+| `wrap` | `u`, `v`, or `mode` (both): `repeat` or `clamp` | importer wrap mode per axis; an axis not named is `clamp` |
+| `linear` | none | import as linear data (sRGB off): masks, noise, flow maps |
+| `srgb` | none | import as sRGB colour (the default) |
+
+`flipbook`, `wrap` and one of `linear` / `srgb` may each appear once; the pixel steps may repeat.
+Resize straight-alpha colour after `premultiply`, or the transparent black around a shape darkens
+its edges.
+
+Every pixel step works on a managed RGBA byte array with integer arithmetic: no GPU blit, no
+platform filter, no floating point except the `round(v * 255)` of a `pack_channels` constant. PNGs
+are decoded and encoded with Unity's CPU codec (`ImageConversion.LoadImage`,
+`ImageConversion.EncodeArrayToPNG`; 8 bits per channel, RGBA). The same source and transform give
+the same output bytes: two runs and a second target gave the same `output_sha256` (the tests and
+the check below).
+
+### Import settings
+
+Set on the target's `TextureImporter` after the PNG is written, and read back into `import_settings`:
+
+| Setting | Value |
+|---|---|
+| texture type, shape | `Default`, `Texture2D` |
+| `sRGBTexture` | true; false after `linear` |
+| `alphaSource` | `FromInput` when any pixel has an alpha below 255, else `None` |
+| `alphaIsTransparency` | true for straight alpha in sRGB: alpha present, sRGB, and not premultiplied (the last of `premultiply`, `luminance_to_alpha` and a `pack_channels` that sets `a` was not `premultiply`) |
+| wrap U, V | from `wrap`, else `Clamp` |
+| filter, mip maps | `Bilinear`; mip maps on (box filter) |
+| `npotScale` | `None`: the size is the one the steps made; a size that is not a power of two is a warning |
+| `maxTextureSize` | the smallest of 32 to 16384 that keeps the output size |
+| compression | `Compressed` (normal quality), not crunched, not readable; no platform overrides |
+
+### What it does, in order
+
+1. Check the transform (every step name, parameter and value; on failure `step_error` with the
+   index, the step and the valid names nearest first), then the source (exists, starts with the
+   PNG signature) and the target (inside the project or a package, ends with `.png`).
+2. Decode the source and run the steps in memory; check the flipbook grid on the final size.
+3. Write the PNG (creating missing folders), import it, set the import settings and re-import. When
+   writing or importing fails, the previous PNG and `.meta` are put back (a new target is deleted).
+   An error before this step never touches the target.
+
+Result payload: `source`, `source_sha256`, `source_size`, `target`, `steps` (each applied step with
+its parameters and defaults; `resize_pot` adds `from` and `to`), `inputs` (each `pack_channels`
+file with its SHA-256 and size), `size`, `flipbook`, `created`, `previous_sha256`, `guid`,
+`guid_stable`, `output_sha256`, `import_settings`.
+
+Verified on 2026-11-13: a 48x40 opaque radial glow written by a script, imported twice into
+`Sandbox~/Assets/Scratch/Glow.png` (gitignored, deleted afterwards) with `luminance_to_alpha`
+(`unpremultiply`), `premultiply`, `resize_pot` 32, `flipbook` 2x1, `wrap` `clamp` and `srgb`: both
+runs `ok`, 32x16, `source_sha256` `b68857f7...` and `output_sha256` `77941d5f...` both times; the
+second run had `guid_stable` true.
 
 ## Pitfalls
 
@@ -537,8 +644,11 @@ Each entry is a verified failure: symptom, cause, fix, file.
   from the repository root failed with `recipe '...' is not inside the project or a package of it`.
 - **Cause:** the verb runs inside the editor, whose current directory is the Sandbox project, and a
   relative path is read as project-relative (`Assets/...`, `Packages/...`).
-- **Fix:** pass `Packages/com.cuvara.vfx/<path in the repository>` or an absolute path.
-- **File:** `Editor/Recipe/VfxProjectPaths.cs`.
+- **Fix:** vfxcli.py resolves a relative path argument against the shell's current directory and
+  passes a path inside the repository as `Packages/com.cuvara.vfx/<path in the repository>` (Agent
+  interface, path arguments); the same command then exited 0 with `describe_sha256` `1224b507...`.
+  Through `VfxCli.Run` directly, pass `Packages/com.cuvara.vfx/<path>` or an absolute path.
+- **File:** `Tools~/vfxcli.py` (`resolve_path_args`), `Editor/Recipe/VfxProjectPaths.cs`.
 
 ### A `VisualEffect` made by a script in edit mode does not simulate
 
