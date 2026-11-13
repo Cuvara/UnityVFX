@@ -238,6 +238,23 @@ Each entry is a verified failure: symptom, cause, fix, file.
   --launch-dismiss-timeout-ms 400000 "$OPEN"` clicks *Ignore*, and the plugin restores the DLLs.
 - **File:** `Sandbox~/Assets/Plugins/NuGet/`.
 
+### A string literal counts as a GC allocation the first time a method runs
+
+- **Symptom:** `Assert.That(() => { player.Play("spark", pos); ... }, Is.Not.AllocatingGCMemory())`
+  failed although the same play had run before outside the delegate, and the same check passed for
+  `Time.time`, `GameObject.SetActive` and re-parenting a `VisualEffect`. Isolated: a
+  `Dictionary<string, T>.TryGetValue("s", out _)` inside the measured delegate allocated, the same
+  call with the key in a captured local (`k = "s"`) did not, for every value type tried (a package
+  class, a private class, `int`, `string`).
+- **Cause:** the editor runs Mono in Debug code optimisation (`CompilationPipeline.codeOptimization`
+  printed `Debug`); the first execution of a method that loads a string literal resolves the literal,
+  and the `GC.Alloc` recorder used by `AllocatingGCMemory` counts it. A lambda is its own method, so a
+  warm-up call outside the lambda does not help.
+- **Fix:** in an allocation test, build the delegate once, invoke it once, then assert on the same
+  delegate (`VfxPlayerTests.WarmPool_PlayAndReturn_DoNotAllocate`). This is a test artefact, not an
+  allocation of the code under test.
+- **File:** `Tests/Runtime/VfxPlayerTests.cs`.
+
 ### Other observations
 
 - Never remove a link while an editor has the project open through it: the running editor

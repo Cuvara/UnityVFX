@@ -24,3 +24,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   package scripts to classes when the project path has a `~` or `.` component, so the Sandbox is
   always opened through the open path (see `Documentation~/AUTHORING.md`).
 - `Documentation~/AUTHORING.md` with the Sandbox workflow and the verified pitfalls.
+- Runtime assembly `Cuvara.VFX` (references `Unity.VisualEffectGraph.Runtime` only):
+  `VfxLibrary` (effect id to prefab, duration and tags; ordinal lookup; `Validate` reports empty and
+  duplicate ids, missing prefabs, prefabs without a `VisualEffect` and negative durations),
+  `VfxSocket` (named attach point with the well-known names `head`, `chest`, `hand_l`, `hand_r`,
+  `feet` and a lookup under a root), `VfxPlayer` (plays an effect by id at a position or on a socket,
+  one-shot or looped, pooled per effect id, no managed allocation per play once the pool is warm,
+  `VfxHandle` to stop an instance) and `ChainLightningBinder` (writes `SourcePosition`,
+  `TargetPosition0`..`TargetPosition7` and `HopCount` into a `VisualEffect` every frame; at most 8
+  targets; null, destroyed and inactive targets skipped; missing properties skipped silently).
+- PlayMode test assembly `Cuvara.VFX.Tests` (gated by `UNITY_INCLUDE_TESTS`) for the four runtime
+  types.
