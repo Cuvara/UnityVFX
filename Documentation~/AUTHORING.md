@@ -1082,8 +1082,56 @@ Each entry is a verified failure: symptom, cause, fix, file.
 - **File:** `Editor/Bridge/VfxGraphBridge.Edit.cs` (`BringToCurrentVersions`, `CompileReport`),
   `Editor/Recipe/VfxRecipeBuilder.cs` (`Run`), `Editor/Bridge/VfxGraphBridge.cs` (`Describe`).
 
+### Material colour properties are sRGB values in the linear Sandbox
+
+- **Symptom:** `VfxCaptureStage` documents its ground as "linear albedo" 0.30 and its backdrop as
+  0.36, set with `Material.SetColor("_BaseColor", ...)`. A URP Unlit material with `_BaseColor`
+  0.5, rendered in play mode into an `ARGBHalf` linear render texture without post-processing, read
+  back 0.2140 (2026-11-27, Sandbox, `QualitySettings.activeColorSpace` Linear).
+- **Cause:** in a project in linear colour space Unity treats a material colour property as an sRGB
+  value and converts it to linear before the shader reads it (0.5 to 0.214). The capture stage's
+  ground therefore has a linear albedo of about 0.073 and its backdrop about 0.106, not 0.30 and
+  0.36.
+- **Fix:** none needed for the look (the presets were tuned on what renders), but read every
+  material colour as sRGB. The grid materials keep the capture stage's property values (ground
+  0.30, backdrop 0.36), so the grid renders with the same albedo as the present capture stage.
+- **File:** `Library/Grid/VfxGridGround.mat`, `Library/Grid/VfxGridBackdrop.mat`,
+  `Editor/Capture/VfxCaptureStage.cs` (`GroundAlbedo`, `BackdropAlbedo`).
+
+### Dark grid lines vanished at night
+
+- **Symptom:** the first grid materials (lines 0.20 on a 0.30 ground, minor strength 0.6, major
+  1.0) read well in day, but in the night gameplay frame the 1 m lines were invisible on the ground
+  and the 5 m lines barely showed; in dusk the 1 m lines were faint
+  (`Sandbox~/Captures/pkg-showcase/shared-stage/tuning/A-*.png`, gitignored).
+- **Cause:** the line contrast is a contrast of albedo, so it scales with the light; with the night
+  preset the ground is about 0.005 mean luminance after ACES, where a 20 % darker line is below
+  what reads.
+- **Fix:** stronger, darker lines: ground lines 0.10, backdrop lines 0.14, minor strength 0.75,
+  major strength 0.8 (the shader's defaults too). Light lines (0.45 ground, 0.52 backdrop) read at
+  night as well but were bright enough in day to compete with an effect (`tuning/B-*`); darker lines
+  (`tuning/C-*`, then the final frames) read in all three presets and stay behind an additive
+  effect. No preset value was changed.
+- **File:** `Library/Grid/CuvaraVfxGrid.shader`, `Library/Grid/VfxGridGround.mat`,
+  `Library/Grid/VfxGridBackdrop.mat`.
+
+### A component's cleanup in `OnDestroy` is not done in the same frame in play mode
+
+- **Symptom:** `VfxRigTests.LightingRig_LeavesTheVolumesOwnProfileUnchanged_AndDestroysItsProfile`
+  failed with `the rig's profile is destroyed with the rig  Expected: True  But was: False` after
+  `Object.DestroyImmediate(rig.gameObject)`.
+- **Cause:** `VfxLightingRig.OnDestroy` destroys its run-time profile with `Object.Destroy` in play
+  mode, which takes effect at the end of the frame.
+- **Fix:** the test destroys the rig and waits one frame (`[UnityTest]`, `yield return null`) before
+  it checks; the same holds for `VfxMannequin` and its material.
+- **File:** `Tests/Runtime/VfxRigTests.cs`, `Tests/Runtime/VfxMannequinTests.cs`.
+
 ### Other observations
 
+- In the Sandbox, with the night preset (key heading 30 degrees), a wall that faces +X is lit from
+  behind and renders near black, so a backdrop turned towards the `side` camera (yaw -90) shows
+  almost nothing at night; the ground grid still reads. Seen in
+  `Sandbox~/Captures/pkg-showcase/shared-stage/night-side.png`.
 - Never remove a link while an editor has the project open through it: the running editor
   recreated `ProfilerCaptures/`, `UserSettings/` and `Library/mcp-server/` as a real folder at the
   old link path. Close the editor first; remove links only with `setup-sandbox.py --remove`.
@@ -1132,19 +1180,24 @@ Each entry is a verified failure: symptom, cause, fix, file.
 ## Differences from DESIGN.md
 
 Every place where the built verbs, formats, schemas or layout differ from
-[DESIGN.md](DESIGN.md), checked against the code on 2026-11-13 and updated on 2026-11-27. These
+[DESIGN.md](DESIGN.md), checked against the code on 2026-11-13 and updated on 2026-11-27 (twice). These
 differences are not written into DESIGN.md; the run lead decides whether the contract adopts
 them. Additions that keep every DESIGN field and behaviour are listed too, because rpg-factory
 scripts read these formats.
 
 ### Layout
 
-1. `Library/`, `Effects/`, `Samples~/Showcase/` and `Documentation~/SHOWCASE.md` do not exist yet:
-   `Effects/` and `Samples~/` belong to later tasks (pkg-showcase), and no shared asset has needed
-   `Library/` so far. Proof: the repository tree (`git ls-files`).
+1. `Library/` holds only `Grid/`: the grid shader `Cuvara/VFX/Grid` (`CuvaraVfxGrid.shader`) and
+   its two materials, `VfxGridGround.mat` and `VfxGridBackdrop.mat`. DESIGN lists shared subgraphs,
+   gradients and textures there; none exists yet. `Effects/` holds only `README.md` (the layout of
+   one effect): no effect exists yet, and each folder holds a file because git tracks no empty
+   folder and `check_metas.py` fails on a folder `.meta` without a Unity-visible file.
+   `Samples~/Showcase/` and `Documentation~/SHOWCASE.md` are built by the rest of the Showcase task
+   (pkg-showcase). Proof: the repository tree (`git ls-files`).
 2. More folders than DESIGN lists: `Editor/` is split into `Cli/`, `Verbs/`, `Recipe/`, `Texture/`,
    `Inspect/`, `Capture/` (the bridge stays alone in `Editor/Bridge/`); `Runtime/Presets/` holds the
-   capture and Showcase presets; `Tests/Fixtures/BurstQuads/` holds the fixture recipe and the
+   capture and Showcase presets; `Runtime/Showcase/` holds the pieces the Showcase scene and the
+   capture stage share (`VfxStation`, `VfxLightingRig`, `VfxCameraRig`, `VfxMannequin`); `Tests/Fixtures/BurstQuads/` holds the fixture recipe and the
    `.vfx` it builds. Proof: those folders.
 3. `Schemas~/` holds a fourth schema, `vfx-inspect.schema.json` (`cuvara.vfx-inspect/1`), besides
    the recipe, capture and describe schemas. Proof: `Schemas~/vfx-inspect.schema.json`.
@@ -1155,13 +1208,17 @@ scripts read these formats.
 
 5. `Cuvara.VFX` and `Cuvara.VFX.Editor` also reference `Unity.RenderPipelines.Core.Runtime` and
    `Unity.RenderPipelines.Universal.Runtime`, for the lighting presets that set URP Volume
-   components (DESIGN's "no dependency on other Cuvara packages" still holds). Proof:
+   components (DESIGN's "no dependency on other Cuvara packages" still holds). `Cuvara.VFX` and
+   `Cuvara.VFX.Tests` also reference `Unity.InputSystem` by name, used only under the version define
+   `CUVARA_VFX_INPUT_SYSTEM` (package `com.unity.inputsystem` present) together with
+   `ENABLE_INPUT_SYSTEM`, for the key trigger of `VfxStation`; `package.json` gets no dependency. Proof:
    `Runtime/Cuvara.VFX.asmdef`, `Editor/Cuvara.VFX.Editor.asmdef`.
 6. The runtime assembly has more public types than the four DESIGN names: `VfxHandle` (returned by
    `VfxPlayer.Play`, stops one instance), `VfxLightingPreset` and `VfxCameraPreset` (the presets
    DESIGN shares between the Showcase and the capture stage, placed in the runtime so the Showcase
-   overlay can use them). `VfxPlayer.Play` also has a `Transform` overload. Proof:
-   `Runtime/VfxHandle.cs`, `Runtime/Presets/`, `Runtime/VfxPlayer.cs`.
+   overlay can use them), and the shared Showcase pieces `VfxStation` (with `VfxStationTrigger`),
+   `VfxLightingRig`, `VfxCameraRig` and `VfxMannequin`. `VfxPlayer.Play` also has a `Transform` overload. Proof:
+   `Runtime/VfxHandle.cs`, `Runtime/Presets/`, `Runtime/Showcase/`, `Runtime/VfxPlayer.cs`.
 7. `ChainLightningBinder` takes up to 8 targets (`MaxTargets`), not N, and writes the properties
    `SourcePosition`, `TargetPosition0` to `TargetPosition7` and `HopCount` (names configurable).
    Proof: `Runtime/ChainLightningBinder.cs`.

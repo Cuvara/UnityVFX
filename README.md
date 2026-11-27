@@ -78,6 +78,9 @@ the `.vfx` it builds. Never edit a `.vfx` as text.
 | Path | Content |
 |---|---|
 | `Runtime/` | `Cuvara.VFX`: `VfxLibrary`, `VfxPlayer` (with `VfxHandle`), `VfxSocket`, `ChainLightningBinder`; `Presets/`: `VfxLightingPreset`, `VfxCameraPreset` |
+| `Runtime/Showcase/` | `Cuvara.VFX` pieces shared by the Showcase scene and the capture stage: `VfxStation`, `VfxLightingRig` (applies a lighting preset), `VfxCameraRig` (places a camera from a camera preset), `VfxMannequin` (a code-built placeholder character with the five sockets) |
+| `Library/` | shared assets every effect and the Showcase may use: `Grid/` holds the procedural grid shader `Cuvara/VFX/Grid` and its ground and backdrop materials |
+| `Effects/` | one folder per effect (`<Name>.vfxrecipe.json`, `.vfx`, `.prefab`, textures); none exists yet, `Effects/README.md` describes the layout |
 | `Editor/` | `Cuvara.VFX.Editor`: `Cli/` (`VfxCli`), `Verbs/`, `Recipe/` (recipe builder), `Texture/` (texture import), `Inspect/`, `Capture/` |
 | `Editor/Bridge/` | `Unity.Testing.VisualEffectGraph.Editor`: `VfxGraphBridge` only (the assembly name VFX Graph lets see its internals) |
 | `Tests/Editor`, `Tests/Runtime` | `Cuvara.VFX.Editor.Tests` (EditMode), `Cuvara.VFX.Tests` (PlayMode) |
@@ -89,8 +92,7 @@ the `.vfx` it builds. Never edit a `.vfx` as text.
 | `.github/` | CI workflow and the licence-free validation scripts |
 | `Documentation~/` | the documents below |
 
-`Effects/`, `Library/` and `Samples~/Showcase/` are part of the design (`Documentation~/DESIGN.md`)
-and do not exist in this version yet.
+`Samples~/Showcase/` (the Showcase scene) is being built; `Effects/` holds no effect yet.
 
 ## Documentation
 

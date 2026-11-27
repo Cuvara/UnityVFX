@@ -34,6 +34,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `VfxLightingPreset` (`day`, `dusk` default, `night`: key and fill light, trilight ambient,
   background, Bloom, ACES, vignette, post exposure) and `VfxCameraPreset` (`gameplay` default, about
   45 degrees at 10 m; `close`; `side`), shared by the capture stage and the Showcase.
+- `Runtime/Showcase/`, shared by the Showcase scene and the capture stage:
+  - `VfxStation`: a label, an effect id of the player's library (changeable at run time), an anchor
+    (a transform or a `VfxSocket` under it), targets (transforms or sockets under them) and a
+    trigger (`Manual`, `Interval` in seconds on scaled time, or `Key`); `PlayNow` plays through
+    `VfxPlayer` and binds a `ChainLightningBinder` of the played instance to the anchor and the
+    valid targets (up to 8); no allocation per frame in `Update`.
+  - The `Key` trigger reads the Input System when the project has `com.unity.inputsystem` and its
+    active input handling includes it (version define `CUVARA_VFX_INPUT_SYSTEM` plus
+    `ENABLE_INPUT_SYSTEM`), else the legacy Input Manager (`ENABLE_LEGACY_INPUT_MANAGER`). The
+    runtime asmdef references `Unity.InputSystem` by name for this; the package gets no new
+    dependency.
+  - `VfxLightingRig`: applies a `VfxLightingPreset` to a key light, a fill light, a Volume (its own
+    run-time profile, never the scene's profile asset), the scene ambient and the camera
+    background; the static `Apply` is the one implementation the Showcase and the capture stage
+    call.
+  - `VfxCameraRig`: places a camera from a `VfxCameraPreset` around a focus point; the static
+    `Place` is the shared implementation.
+  - `VfxMannequin.Create`: a code-built capsule mannequin (1.8 m, feet at y = 0, facing +Z, no
+    collider, one URP Lit material destroyed with it) with the five well-known sockets, the
+    placeholder when no character model is available.
+
+#### Library and Effects
+
+- `Library/Grid/CuvaraVfxGrid.shader` (`Cuvara/VFX/Grid`), written for this package: a lit opaque
+  URP 17.6 surface (main and additional lights in Forward and Forward+, the ambient probe, shadows
+  cast and received, depth and depth-normals passes, SRP Batcher compatible, no texture) with
+  world-space grid lines every cell (1 m) and stronger lines every 5 cells, anti-aliased with
+  screen-space derivatives (at least one pixel wide, fading to their average coverage where cells
+  get smaller than two pixels). Albedo, line colour, line width, cell size and line strengths are
+  material properties.
+- `Library/Grid/VfxGridGround.mat` (albedo 0.30, lines 0.10) and `VfxGridBackdrop.mat` (albedo
+  0.36, lines 0.14), the same albedo values as the capture stage's ground and backdrop.
+- `Effects/README.md`: the folder layout of one effect; no effect exists yet.
 
 #### Editor
 
@@ -93,6 +126,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   inspect, and capture determinism (two captures with one seed).
 - PlayMode test assembly `Cuvara.VFX.Tests`: `VfxLibrary`, `VfxSocket`, `VfxPlayer`,
   `ChainLightningBinder` and the presets.
+- PlayMode tests `VfxStationTests` (interval and direct plays, effect change, socket anchors,
+  `ChainLightningBinder` binding and its limit, the Input System key map), `VfxRigTests` (every value
+  of each lighting preset through the rig and the static `Apply`; camera position, rotation and
+  field of view of each camera preset) and `VfxMannequinTests` (sockets, height, no collider,
+  nothing left after the root is destroyed). The test asmdef gets the same `Unity.InputSystem`
+  reference and version define as the runtime.
 
 #### Sandbox and tools
 
