@@ -10,8 +10,8 @@ needs no Unity licence, plus game-ci Unity jobs that check the repository out un
 |---|---|---|
 | `validate` | nothing (no Unity, no GPU, no secret) | the six validation scripts below, a `py_compile` of `Tools~/*.py` and `.github/scripts/*.py`, and a YAML parse of every workflow file |
 | `licence` | nothing | turns the presence of the `UNITY_LICENSE` secret into the output `present` |
-| `editmode` | `licence`, runs only when `present == 'true'` | game-ci `unity-test-runner`, `testMode: EditMode`, project `sandbox-home/Sandbox` (a copy of `Sandbox~`) |
-| `playmode` | `licence`, runs only when `present == 'true'` | game-ci `unity-test-runner`, `testMode: PlayMode`, project `sandbox-home/Sandbox` |
+| `editmode` | `licence`, runs only when `present == 'true'` | game-ci `unity-test-runner`, `testMode: EditMode`, `customParameters: -testCategory !GPU`, project `sandbox-home/Sandbox` (a copy of `Sandbox~`) |
+| `playmode` | `licence`, runs only when `present == 'true'` | game-ci `unity-test-runner`, `testMode: PlayMode`, `customParameters: -testCategory !GPU`, project `sandbox-home/Sandbox` |
 
 A secret cannot be read in a job-level `if`, so the `licence` job reads it into a step `env` and
 publishes a boolean. When the secret is absent (a fork, or a repository that has not been given it
@@ -54,45 +54,135 @@ The Unity jobs then:
 
 - Cache `sandbox-home/Sandbox/Library`, keyed on the Unity version, the Sandbox manifest and lock
   file and `package.json`.
-- Finish with `.github/scripts/assert_test_results.py`, which fails on zero tests, a failure or an
-  error. A green run that executed nothing is not a pass.
+- Finish with `.github/scripts/assert_test_results.py --excluded-category GPU`, which fails on zero
+  tests, a failure or an error (a green run that executed nothing is not a pass) and writes the
+  counts to the job summary (see "GPU tests").
 - Upload the NUnit XML as an artifact (`editmode-results`, `playmode-results`).
+
+### What CI runs and what only the Sandbox runs
+
+The hosted runner has no GPU. Every test that needs VFX Graph compute simulation or a capture is in
+the NUnit category `GPU`; both Unity jobs exclude that category, so **CI runs**:
+
+| Job | CI runs (`-testCategory !GPU`) | Only the Sandbox runs (category `GPU`) |
+|---|---|---|
+| `editmode` | 126 tests | 3 tests |
+| `playmode` | 82 tests | 7 tests |
+
+The numbers are from the local Sandbox, 2026-11-27 (see "Local evidence"). The job summary that
+`assert_test_results.py` writes shows the counts each job really ran and names the excluded category.
+
+The GPU category holds:
+
+- EditMode (3): `CaptureTests.SameSeedTwice_GivesTheSamePeak_NoMinusOne_AndAllFiles`,
+  `CaptureTests.AnotherLoadedScene_DoesNotChangeTheCapture_AndIsRestoredAfterwards` and
+  `CaptureCastTests.StandInWithThreeTargets_BindsTheChain_TwiceTheSame_AndAMissingPrefabPlacesThePlaceholder`.
+  The other tests of those fixtures check arguments in edit mode and need no GPU.
+- PlayMode (7): the whole fixture `Cuvara.VFX.Sandbox.ShowcaseTests.ShowcaseSmokeTests`
+  (`Sandbox~/Assets/Tests`): every test loads the Showcase scene, whose stations play VFX Graph
+  effects. `.github/scripts/ci_sandbox.py` copies the whole Sandbox, including `Assets/Tests`, and
+  `Samples~/Showcase` into the CI project, so these smoke tests are in the CI PlayMode project and
+  would run there; the category is what keeps them out. The seven tests are
+  `Scene_LoadsAndPlays_WithNoErrorOrException`,
+  `Scene_HasTheFourStations_AndTheLaneHasACasterAndThreeTargets3To4MetresApart`,
+  `EveryCharacter_HasTheFiveSockets`,
+  `SpawnPoint_WithoutAPrefab_PlacesThePlaceholderWithTheFiveSockets`,
+  `CameraPresets_ThroughTheOverlay_PlaceTheCameraAtTheSharedPresetForTheSelectedStation`,
+  `LightingPresets_ThroughTheOverlay_EqualTheSharedPresetData` and
+  `FixtureStation_HasAliveParticles_AfterItsTrigger`.
+
+The build, describe and inspect tests (the VFX Graph compile and the shader import run without a GPU)
+and the other PlayMode tests (their `VisualEffect` components have no asset, so nothing is simulated)
+are not in the category and run in CI.
 
 ### Limits
 
-- The Unity jobs have not run yet: the repository has no remote and no `UNITY_LICENSE` secret. The
-  layout script was checked locally on a copy of the tracked files (exit 0; a second run, a home
-  without a package and a home inside the repository each exit 1).
-- A hosted runner can have no GPU. Tests that need a real render or a GPU readback (`CaptureTests`,
-  anything that reads `aliveParticleCount`) cannot give a meaningful result there. They are run
-  locally against the Sandbox with the Unity Test Runner through Unity-MCP (AUTHORING.md, "Open,
-  watch, check, drive, close"); the licence-free gate is `validate`. See "GPU tests" below.
+- Run 45974445050 (PR #1, `Cuvara/UnityVFX`), before the GPU category existed, showed why the
+  exclusion is needed: the EditMode job crashed the editor natively in `VFXManager::Update` ->
+  `VFX::DispatchCompute` (no result XML), and the PlayMode job reported 89 total, 88 passed, 1
+  failed (`ShowcaseSmokeTests.FixtureStation_HasAliveParticles_AfterItsTrigger`, "BurstQuads has alive
+  particles after the station's trigger, Expected: greater than 0").
+- The runner renders with Mesa llvmpipe (OpenGL Core 4.5), a software rasteriser that **claims**
+  compute shader support. A check on `SystemInfo.supportsComputeShaders` alone passes there, and VFX
+  Graph then crashes the editor in `VFX::DispatchCompute`. The guard below also checks the device name.
+- CI never runs the GPU category: the capture, the Showcase scene and the particle counts are checked
+  only where a real GPU is present, in the local Sandbox (AUTHORING.md, "Open, watch, check, drive,
+  close"). The licence-free gate is `validate`.
+- The GPU category needs an editor that renders. In `-batchmode` no camera renders, so a `VisualEffect`
+  is most likely culled and never simulates: the Showcase particle test
+  (`FixtureStation_HasAliveParticles_AfterItsTrigger`) saw 0 alive particles in a batch run on the
+  real GPU (PlayMode, all categories: 88 of 89 passed, 1 failed). The three EditMode capture tests
+  passed in batch mode. Run the GPU category in an opened editor through Unity-MCP (`tests-run`), not
+  in `-batchmode`; there the same PlayMode run passed 89 of 89.
+- The Sandbox holds the Unity-MCP plugin. `Sandbox~/UserSettings` is gitignored, so in CI the plugin
+  starts without the local configuration that `setup-sandbox.py` writes (AUTHORING.md, Pitfalls, "The
+  Unity-MCP plugin starts in Cloud mode"). Look there first if a licensed run fails outside the
+  package's tests.
+- The game-ci image for `6000.6.9f1` must exist. If the runner reports that the editor image cannot
+  be pulled, the job fails and the pin in `UNITY_VERSION` is the thing to look at.
 
 ### GPU tests
 
-Rule: a test that simulates an effect on the GPU or reads a render target back calls
-`GraphicsRequirement.IgnoreUnlessGpuSimulationRuns()` (`Tests/Editor/GraphicsRequirement.cs`)
-before it does anything else, and before it enters play mode. When `SystemInfo.graphicsDeviceType`
-is `Null` (no graphics device, for example `-nographics`) or `SystemInfo.supportsComputeShaders` is
-false, the test ends as **Ignored**, and the reason names the missing device or feature. It is never
-a silent pass. It runs and must pass where a GPU is present, as in the local Sandbox.
+Rule: every new test that reaches VFX simulation, a capture or `aliveParticleCount` gets the category
+**and** the guard:
 
-- Guarded today: `CaptureTests.SameSeedTwice_GivesTheSamePeak_NoMinusOne_AndAllFiles`. The other
-  `CaptureTests` check arguments in edit mode and need no GPU.
-- Not guarded: the build, describe and inspect tests (the VFX Graph compile and the shader import
-  run without a GPU), and the PlayMode tests (their `VisualEffect` components have no asset, so
-  nothing is simulated).
-- In a game-ci run, read the skipped count that `assert_test_results.py` prints. Each skipped test
-  is an Ignored GPU test, and its NUnit XML holds the reason. A skipped count above the number of
-  guarded tests is a problem to look at.
-- Add the guard to every new test that needs a capture, a readback or `aliveParticleCount`.
-- The Sandbox holds the Unity-MCP plugin. `Sandbox~/UserSettings` is gitignored, so in CI the
-  plugin starts without the local configuration that `setup-sandbox.py` writes (AUTHORING.md,
-  Pitfalls, "The Unity-MCP plugin starts in Cloud mode"). Whether it logs an error that fails a
-  test run in batch mode is not known yet; look there first if the first licensed run fails outside
-  the package's tests.
-- The game-ci image for `6000.6.9f1` must exist. If the runner reports that the editor image cannot
-  be pulled, the job fails and the pin in `UNITY_VERSION` is the thing to look at.
+```csharp
+[Category(GraphicsRequirement.Category)]               // "GPU"
+...
+GraphicsRequirement.IgnoreUnlessGpuSimulationRuns();   // first statement, before play mode or a scene load
+```
+
+`GraphicsRequirement` (`Tests/Runtime/GraphicsRequirement.cs`, namespace and assembly
+`Cuvara.VFX.Tests`) holds the const `Category` (`"GPU"`) and `SkipVariable`. The Editor test assembly
+and the Sandbox Showcase test assembly reference `Cuvara.VFX.Tests`. A fixture whose every test needs
+the GPU (`ShowcaseSmokeTests`) carries the category on the class and runs the guard in `SetUp`, so the
+scene never loads.
+
+The guard ends the test as **Ignored**, with the reason, never as a silent pass and never as a crash,
+when any of these is true:
+
+- the environment variable `CUVARA_VFX_SKIP_GPU_TESTS` is `1` or `true` (any case): forces the skip
+  whatever the device;
+- `SystemInfo.graphicsDeviceType` is `Null` (no graphics device, for example `-nographics`);
+- `SystemInfo.supportsComputeShaders` is false;
+- the device name or vendor contains a software rasteriser name (case-insensitive): `llvmpipe`,
+  `softpipe`, `lavapipe`, `SwiftShader`, `Microsoft Basic Render`.
+
+The reason names the device, for example: `skipped on request: the environment variable
+CUVARA_VFX_SKIP_GPU_TESTS is '1' (graphics device Direct3D12 'NVIDIA GeForce RTX 5060' (vendor
+'NVIDIA')); the GPU tests run only where VFX Graph can simulate on a GPU`.
+
+CI keeps the category out in two layers: both Unity jobs pass `customParameters: -testCategory !GPU`
+(the value is deliberately unquoted; the comment in `ci.yml` explains how game-ci v4.3.2 splits it),
+and the guard ignores any GPU test that a run without the exclusion still reaches on a software device.
+
+Job summary: `assert_test_results.py <dir> --label <text> --excluded-category GPU` prints
+`<label>: total=... passed=... failed=... errors=... inconclusive=... skipped=...`, fails on zero
+tests, a failure or an error, and, when `GITHUB_STEP_SUMMARY` is set, appends a table of the counts and
+the sentence that the `GPU` category is excluded in CI and runs only in the local Sandbox. A skipped
+count above 0 in a CI run is a test outside the category that called `Assert.Ignore`: read its reason
+in the NUnit XML.
+
+### Local evidence
+
+Sandbox, Unity 6000.6.9f1, Windows, Direct3D12 on an NVIDIA GeForce RTX 5060, 2026-11-27. "GPU tests"
+is the number of GPU-category tests in the run. No GPU test was Ignored locally without the skip variable.
+
+| Run | How | Total | Passed | Failed | Skipped / Ignored | GPU tests |
+|---|---|---:|---:|---:|---:|---:|
+| EditMode, all categories | `-batchmode` | 129 | 129 | 0 | 0 | 3 |
+| PlayMode, all categories | `-batchmode` | 89 | 88 | 1 | 0 | 7 |
+| PlayMode, all categories | opened editor, Unity-MCP `tests-run` | 89 | 89 | 0 | 0 | 7 |
+| EditMode, `-testCategory !GPU` | `-batchmode` | 126 | 126 | 0 | 0 | 0 |
+| PlayMode, `-testCategory !GPU` | `-batchmode` | 82 | 82 | 0 | 0 | 0 |
+| PlayMode, `-testCategory GPU`, `CUVARA_VFX_SKIP_GPU_TESTS=1` | `-batchmode` | 7 | 0 | 0 | 7 Ignored | 7 |
+| EditMode, `-testCategory GPU`, `CUVARA_VFX_SKIP_GPU_TESTS=1` | `-batchmode` | 3 | 0 | 0 | 3 Ignored | 3 |
+
+- The batch runs with an exclusion used the exact CI argument `-testCategory !GPU`: 129 - 126 = 3 and
+  89 - 82 = 7, so the GPU tests dropped out.
+- The one failure is the batch-mode limit above: 0 alive particles with no rendering camera.
+- With `CUVARA_VFX_SKIP_GPU_TESTS=1` every GPU test ended Ignored (never Failed or Error) with the
+  reason above, in both modes.
 
 ## Validation scripts
 
@@ -110,7 +200,7 @@ check and 2 when a dependency is missing.
 | `check_schemas.py` | every `Schemas~/*.schema.json` parses, declares `$schema` `https://json-schema.org/draft/2020-12/schema`, has a unique `$id`, and passes `Draft202012Validator.check_schema`; fails when `Schemas~/` holds no schema |
 | `check_recipes.py` | the recipe schema is a valid JSON Schema and every `*.vfxrecipe.json` validates against `Schemas~/vfx-recipe.schema.json`. Passes while the schema or the recipes do not exist; fails on an invalid recipe once both exist |
 | `ci_sandbox.py <home>` | used by the Unity jobs: lays out `<home>/Sandbox` (see "The Sandbox in CI") |
-| `assert_test_results.py <dir>` | used by the Unity jobs: NUnit XML exists, total greater than zero, no failure, no error |
+| `assert_test_results.py <dir> [--label <text>] [--excluded-category <name>]` | used by the Unity jobs: NUnit XML exists, total greater than zero, no failure, no error; prints the counts and writes them to the job summary (`GITHUB_STEP_SUMMARY`), naming the excluded category as Sandbox-only |
 
 Run the `validate` checks locally:
 

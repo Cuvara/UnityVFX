@@ -295,3 +295,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The README quick start built the tracked fixture in place and wrote `catalog.json` into the
   repository root. It now uses a copy under `Sandbox~/Assets/Scratch` and a gitignored `vfx-out/`
   folder.
+- CI failed on a runner with no GPU (run 45974445050 on PR #1): the EditMode job crashed the editor
+  natively in `VFXManager::Update` -> `VFX::DispatchCompute` (no result XML), and the PlayMode job
+  failed `ShowcaseSmokeTests.FixtureStation_HasAliveParticles_AfterItsTrigger` (0 alive particles).
+  The runner renders with Mesa llvmpipe, which claims compute support but cannot run VFX Graph.
+  Every test that needs VFX Graph simulation or a capture is now in the NUnit category `GPU` (the 3
+  EditMode capture tests and the 7 `ShowcaseSmokeTests`), and both Unity jobs pass
+  `customParameters: -testCategory !GPU`: CI runs 126 EditMode and 82 PlayMode tests and the
+  category runs only in the local Sandbox.
+- `GraphicsRequirement` moved to `Tests/Runtime` (`Cuvara.VFX.Tests`, shared with the Sandbox
+  Showcase tests) with the const `Category` and `SkipVariable`. Its guard ends a GPU test as Ignored,
+  with the reason, before play mode or a scene load when `CUVARA_VFX_SKIP_GPU_TESTS` is `1` or `true`,
+  when there is no graphics device, no compute shader support, or when the device is a software
+  rasteriser (llvmpipe, softpipe, lavapipe, SwiftShader, Microsoft Basic Render), so no headless run
+  reaches `VFXManager.Update`.
+- `assert_test_results.py --excluded-category` writes the counts and the note that the category runs
+  only in the Sandbox to the job summary (`GITHUB_STEP_SUMMARY`).
+- `Documentation~/CI.md` lists which tests CI runs and which only the Sandbox runs, the guard, and the
+  local counts of 2026-11-27 (EditMode 129 of 129; PlayMode 89 of 89 in an opened editor; `!GPU` runs
+  126 and 82). The GPU category needs an editor that renders: in `-batchmode` the Showcase particle
+  test sees 0 alive particles (PlayMode 88 of 89).
