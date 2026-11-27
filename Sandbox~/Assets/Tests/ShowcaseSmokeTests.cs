@@ -27,9 +27,13 @@ namespace Cuvara.VFX.Sandbox.ShowcaseTests
     /// <c>Cuvara.VFX.Samples.Showcase</c>: it reaches the sample's components by type name and calls
     /// their public methods by reflection. Every test is ignored, with the reason, when
     /// <c>Assets/Showcase</c> is absent (a Sandbox without the link). The CI project gets a copy of the
-    /// sample from <c>.github/scripts/ci_sandbox.py</c>, so the tests run there; the particle test is
-    /// ignored without a graphics device or compute shaders (Documentation~/CI.md, GPU tests).
+    /// sample from <c>.github/scripts/ci_sandbox.py</c>. Every test loads the Showcase scene, whose
+    /// stations play effects that VFX Graph simulates on the GPU, so the whole class is in the GPU
+    /// category and <c>SetUp</c> runs <see cref="Cuvara.VFX.Tests.GraphicsRequirement"/> before the scene
+    /// loads: the tests are ignored, with the reason, where VFX Graph cannot simulate (Documentation~/CI.md,
+    /// GPU tests).
     /// </remarks>
+    [Category(Cuvara.VFX.Tests.GraphicsRequirement.Category)]
     public sealed class ShowcaseSmokeTests
     {
         const string ScenePath = "Assets/Showcase/Showcase.unity";
@@ -50,6 +54,10 @@ namespace Cuvara.VFX.Sandbox.ShowcaseTests
         [UnitySetUp]
         public IEnumerator SetUp()
         {
+            // Every test loads the Showcase scene, whose stations play effects that VFX Graph simulates on
+            // the GPU: guard before the scene loads, so a device without GPU simulation never reaches
+            // VFXManager.Update (it crashes the editor natively on Mesa llvmpipe).
+            Cuvara.VFX.Tests.GraphicsRequirement.IgnoreUnlessGpuSimulationRuns();
             if (!SamplePresent)
                 Assert.Ignore("Assets/Showcase is absent: run python Tools~/setup-sandbox.py to link Samples~/Showcase into the Sandbox");
             Assert.IsNotNull(SampleType(OverlayType), "the sample assembly " + SampleAssembly + " is compiled");
@@ -240,11 +248,8 @@ namespace Cuvara.VFX.Sandbox.ShowcaseTests
         [UnityTest]
         public IEnumerator FixtureStation_HasAliveParticles_AfterItsTrigger()
         {
-            // VFX Graph simulates particles with compute shaders (the guard of Tests/Editor/GraphicsRequirement.cs).
-            if (SystemInfo.graphicsDeviceType == GraphicsDeviceType.Null)
-                Assert.Ignore("needs a GPU: the editor has no graphics device (SystemInfo.graphicsDeviceType is Null, for example under -nographics)");
-            if (!SystemInfo.supportsComputeShaders)
-                Assert.Ignore($"needs compute shaders: the graphics device {SystemInfo.graphicsDeviceType} does not support them");
+            // VFX Graph simulates particles with compute shaders: SetUp already ran the guard of
+            // Tests/Runtime/GraphicsRequirement.cs (Cuvara.VFX.Tests), so this test only runs on a real GPU.
             VfxStation fixture = OverlayStations().FirstOrDefault(s => s.EffectId == FixtureEffect);
             Assert.IsNotNull(fixture, "a station plays the fixture effect " + FixtureEffect);
             float start = Time.realtimeSinceStartup;

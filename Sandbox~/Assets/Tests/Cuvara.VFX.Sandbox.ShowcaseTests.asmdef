@@ -3,6 +3,7 @@
   "rootNamespace": "Cuvara.VFX.Sandbox.ShowcaseTests",
   "references": [
     "Cuvara.VFX",
+    "Cuvara.VFX.Tests",
     "Unity.RenderPipelines.Core.Runtime",
     "Unity.RenderPipelines.Universal.Runtime",
     "Unity.VisualEffectGraph.Runtime",
