@@ -3,7 +3,11 @@
 
 A green run that executed zero tests proves nothing, so zero is a failure.
 
-Usage: assert_test_results.py <artifacts dir> [--label <text>]
+Prints the counts and, when GITHUB_STEP_SUMMARY is set, appends them to the job summary. With
+--excluded-category the summary also says that the category is not run in CI and runs only in
+the local Sandbox (the CI job excludes it with `-testCategory "!<category>"`).
+
+Usage: assert_test_results.py <artifacts dir> [--label <text>] [--excluded-category <name>]
 """
 
 import argparse
@@ -13,10 +17,39 @@ import sys
 import xml.etree.ElementTree as ET
 
 
+def write_summary(args, total, passed, failed, errors, inconclusive, skipped):
+    """Append the counts to the job summary; a no-op outside GitHub Actions."""
+    path = os.environ.get("GITHUB_STEP_SUMMARY")
+    if not path:
+        return
+    lines = [
+        f"### {args.label}",
+        "",
+        "| Total | Passed | Failed | Errors | Inconclusive | Skipped |",
+        "| ---: | ---: | ---: | ---: | ---: | ---: |",
+        f"| {total} | {passed} | {failed} | {errors} | {inconclusive} | {skipped} |",
+        "",
+    ]
+    if args.excluded_category:
+        lines += [
+            f"The `{args.excluded_category}` category is excluded in CI: the hosted runner has no GPU, "
+            f"so VFX simulation cannot run there. It runs only in the local Sandbox "
+            f"(see Documentation~/CI.md).",
+            "",
+        ]
+    with open(path, "a", encoding="utf-8") as handle:
+        handle.write("\n".join(lines) + "\n")
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("artifacts", help="directory that holds the result XML (game-ci: artifacts/)")
     parser.add_argument("--label", default="tests")
+    parser.add_argument(
+        "--excluded-category",
+        default="",
+        help="NUnit category the CI job excludes; named in the job summary as Sandbox-only",
+    )
     args = parser.parse_args()
 
     files = sorted(glob.glob(os.path.join(args.artifacts, "**", "*.xml"), recursive=True))
@@ -48,6 +81,7 @@ def main():
         f"{args.label}: total={total} passed={passed} failed={failed} errors={errors} "
         f"inconclusive={inconclusive} skipped={skipped}"
     )
+    write_summary(args, total, passed, failed, errors, inconclusive, skipped)
     if total == 0:
         print(f"::error::Zero {args.label} were executed. Check that the package resolves and its test assembly loads.")
         return 1

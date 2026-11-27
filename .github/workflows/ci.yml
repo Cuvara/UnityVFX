@@ -139,12 +139,23 @@ jobs:
           projectPath: sandbox-home/Sandbox
           unityVersion: ${{ env.UNITY_VERSION }}
           testMode: EditMode
+          # Category GPU holds every test that needs VFX Graph compute simulation or a capture. The
+          # hosted runner has no GPU (Mesa llvmpipe): there those tests crash the editor or see 0
+          # particles, so CI excludes them and they run only in the local Sandbox
+          # (Documentation~/CI.md). The value is NOT quoted on purpose. game-ci v4.3.2 puts it in
+          # `--env CUSTOM_PARAMETERS="..."` of a docker command run without a shell
+          # (src/model/docker.ts, image-environment-factory.ts) and dist/platforms/ubuntu/run_tests.sh
+          # expands `$CUSTOM_PARAMETERS` unquoted: it is split on whitespace and no quote removal
+          # follows, so a quote would reach Unity as a character of the category and `!GPU` arrives
+          # intact (the script is non-interactive: no history expansion). Unity Test Framework
+          # command line: -testCategory takes `;`-separated names and `!` negates one.
+          customParameters: -testCategory !GPU
           githubToken: ${{ secrets.GITHUB_TOKEN }}
           checkName: EditMode Test Results
 
       - name: Assert tests ran and passed
         if: always()
-        run: python3 sandbox-home/package/.github/scripts/assert_test_results.py artifacts --label "EditMode tests"
+        run: python3 sandbox-home/package/.github/scripts/assert_test_results.py artifacts --label "EditMode tests" --excluded-category GPU
 
       - name: Upload test results
         uses: actions/upload-artifact@v4
@@ -187,12 +198,14 @@ jobs:
           projectPath: sandbox-home/Sandbox
           unityVersion: ${{ env.UNITY_VERSION }}
           testMode: PlayMode
+          # Same exclusion as the EditMode job above.
+          customParameters: -testCategory !GPU
           githubToken: ${{ secrets.GITHUB_TOKEN }}
           checkName: PlayMode Test Results
 
       - name: Assert tests ran and passed
         if: always()
-        run: python3 sandbox-home/package/.github/scripts/assert_test_results.py artifacts --label "PlayMode tests"
+        run: python3 sandbox-home/package/.github/scripts/assert_test_results.py artifacts --label "PlayMode tests" --excluded-category GPU
 
       - name: Upload test results
         uses: actions/upload-artifact@v4
