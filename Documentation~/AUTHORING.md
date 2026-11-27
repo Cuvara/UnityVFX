@@ -68,6 +68,9 @@ OPEN="$(python Tools~/setup-sandbox.py --print-open-path)"
 python Tools~/setup-sandbox.py --open          # setup, refuse if this clone's editor already runs,
                                                # start it, print its memory every few seconds until
                                                # Unity-MCP is ready (--hold N: watch N s more)
+python Tools~/setup-sandbox.py --restore-nuget  # only when Assets/Plugins/NuGet is absent or incomplete:
+                                               # bring the Unity-MCP NuGet DLLs back, then close the editor
+                                               # (--open does the restore by itself and leaves the editor open)
 python Tools~/setup-sandbox.py --watch --duration 60   # PID, private bytes, working set
 unity-mcp-cli status "$OPEN"                    # must say: Unity is running (PID n), MCP server reachable
 ```
@@ -130,20 +133,91 @@ the links (links only) and an empty sandbox home.
    sandbox home and its links, and pins the Unity-MCP plugin to a local server
    (`unity-mcp-cli bootstrap-local`) when `Sandbox~/UserSettings/AI-Game-Developer-Config.json`
    is missing or not in `Custom` mode.
-2. `python Tools~/setup-sandbox.py --open`. The first import takes several minutes.
+2. `python Tools~/setup-sandbox.py --open`. The first import takes several minutes. When
+   `Sandbox~/Assets/Plugins/NuGet` is absent or incomplete (the clone no longer carries the DLLs),
+   `--open` brings the DLLs back by itself, see "Restoring the DLLs" below.
 
 ### The committed NuGet DLLs
 
 `Sandbox~/Assets/Plugins/NuGet` holds the third-party .NET DLLs the Unity-MCP plugin needs (45
-DLLs, about 19 MB: `McpPlugin`, `ReflectorNet`, the ASP.NET Core SignalR client, Roslyn
-`Microsoft.CodeAnalysis`, `Microsoft.Extensions.*` and their dependencies; the list with versions
-is `Sandbox~/Assets/Plugins/NuGet/.nuget-installed.json`). They are the plugin's own restore output,
-committed as the game client commits them, because the plugin does not restore them on its own: a
-first open without the folder stops at about 1000 compile errors and stays there (Pitfalls,
-"Missing NuGet DLLs stop the first open at a dialog"). Their licence entries belong in
-`THIRD-PARTY.md` at the repository root, which the Showcase task (pkg-showcase) owns and writes;
-this package does not ship the DLLs (they are inside `Sandbox~`, which Unity does not import from
-the package).
+DLLs, 17.8 MiB = 18.6 MB, measured as 18,617,104 bytes of DLLs; with the 45 `.meta` files, the folder
+`.meta` and `.nuget-installed.json` it is 91 files and 18,649,076 bytes: `McpPlugin`, `ReflectorNet`,
+the ASP.NET Core SignalR client, Roslyn `Microsoft.CodeAnalysis`, `Microsoft.Extensions.*` and their
+dependencies; the list with versions is `Sandbox~/Assets/Plugins/NuGet/.nuget-installed.json`). They
+are the plugin's own restore output, committed as the game client commits them, because a first open
+without the folder stops at about 1000 compile errors and stays there unless the editor is started
+the way `--restore-nuget` does (Pitfalls, "Missing NuGet DLLs stop the first open at a dialog").
+Their licence entries are in `THIRD-PARTY.md` at the repository root (the Rql DLLs and the Quaternius
+characters are marked there as owner decisions before a public release). This package does not ship
+the DLLs: an npm or OpenUPM tarball leaves out `Sandbox~` (`package.json` `files`), and Unity imports
+no folder that ends in `~`. A Git URL install still downloads the whole repository, `Sandbox~` included.
+
+#### Packaging
+
+`package.json` has `"files": ["*", "!Sandbox~"]`, the mechanism `npm pack` and `npm publish` honour (the
+sibling packages `UIToolkit` and `UnityDots` publish with `npm publish` in their `release.yml` and have
+no `.npmignore`; a root `.npmignore` would also work but is not needed). Proof, `npm pack --dry-run
+--json` in a copy of the repository made outside it (`git ls-files --cached --others --exclude-standard`
+into a temporary folder; no tarball was written and none is in the repository), 2026-11-27, npm 11.6.2:
+
+| | Entries | Packed | Unpacked | `Sandbox~/` entries |
+|---|---|---|---|---|
+| without `files` | 349 | 9,030,727 bytes | 22,034,218 bytes | 133 |
+| with `files` | 217 | 1,596,617 bytes | 3,243,813 bytes | 0 |
+
+Nothing else left the tarball (0 removed outside `Sandbox~/`); `.gitignore` entered it (1 added: a
+whitelist includes it; harmless). Still in: `Samples~/` (19), `Documentation~/` (4), `Schemas~/` (4),
+`Tools~/` (3), `Library/` (7), `Effects/` (2), `Runtime/` (28), `Editor/` (67), `Tests/` (56) and their
+`.meta` files (`Library.meta`, `Effects.meta`, `Runtime.meta`, `Editor.meta`, `Tests.meta`; `~` folders
+have none). A Git URL install is not affected by `files`: it clones the repository. Run a real
+`npm pack` from a clean checkout or such a copy, not from a working tree whose `Sandbox~/Library` is
+large (npm walks the folder before it applies the exclusion).
+
+#### Restoring the DLLs
+
+The DLLs can leave the repository without breaking a fresh clone, because the plugin restores them
+itself (it downloads the packages of its `.nuget-installed.json` list, 43 `[NuGet] Installed` lines in
+the editor log) once the editor runs past the compile-errors dialog that the missing DLLs cause.
+`setup-sandbox.py` automates exactly that:
+
+```sh
+python Tools~/setup-sandbox.py --restore-nuget   # restore, wait until ready, close the editor
+python Tools~/setup-sandbox.py --open            # same restore when the folder is missing, editor stays open
+```
+
+- The check: `Assets/Plugins/NuGet/.nuget-installed.json` lists every package and its DLLs. The state is
+  `complete` when all of them are there, `incomplete` when some are missing, and `absent` when the
+  list itself is missing (then there is nothing to compare, and the plugin restores the full set).
+  `python Tools~/setup-sandbox.py` prints it under `nuget` and warns when it is not `complete`.
+- The restore start is `unity-mcp-cli open --launch-dismiss-timeout-ms 400000`, which clicks *Ignore* on
+  the compile-errors dialog. "Ready" then needs the DLL set `complete` and Unity-MCP answering, which
+  means the editor compiled with the restored DLLs. The memory guard runs the whole time. If the
+  launcher (our own `unity-mcp-cli open`, with its dismiss watch of up to 400 s) is still running 5 s
+  after ready, it is ended by exact PID, never as a process tree; in the first run it kept running
+  until the 400 s were over, in the later runs it ended by itself, so that stop is NOT exercised by
+  hand. The result is under `nuget_after`, `restore_nuget`, `ready_after_s` and `closed`.
+- The restore needs network access (the plugin downloads from nuget.org; an offline run was NOT_RUN).
+  If it ends at `not ready after N s`, the editor is left running: read `Sandbox~/Logs/Editor.log`
+  (`error CS` lines, `[Unity-MCP DependencyResolver]` lines), then `--close`, then use the manual
+  recovery in Pitfalls.
+- Meta files: the restored folder, its `.meta` files and `.nuget-installed.json` were byte-identical to
+  the committed ones (below), so a restore leaves `git status` clean.
+
+Measured on 2026-11-27 (Sandbox editor closed first; the committed `Assets/Plugins/NuGet` and its
+`.meta` moved to a folder outside the repository; `Sandbox~/Library` was warm, so this is not a
+first-ever import):
+
+| Run | Start | Ready after | Peak private / working set | After ready | Restored vs committed |
+|---|---|---|---|---|---|
+| `--restore-nuget` | folder absent | 52.9 s (126 s with the launcher wait that is now cut) | 2.56 GB / 1.78 GB (2.78 GB / 1.97 GB while closing) | editor closed by itself 6.0 s after the request, exit code 0 | 45 equal, 0 differing, 0 missing, 0 extra by name and SHA-256; `diff -r` of the folder, `NuGet.meta` identical |
+| `--open` (auto restore) | folder absent | 44.0 s (45 s wall) | 2.55 GB / 1.77 GB | `isCompiling` false, console 0 errors (RQL), `Editor.log`: 2010 `error CS` lines (1005 errors printed twice) before the restore and none after it | the same: 45 equal, 0 differing, 0 missing; `diff -r` identical |
+| `--open` (folder present, normal path) | complete | 20.7 s (43 s wall with `--hold 20`) | 2.49 GB / 1.67 GB | `isCompiling` false, console 0 errors, 0 `error CS` | not applicable |
+
+Both restored sets were identical to the committed one, so a restore on a clone without the folder
+gives the committed set (the same package versions: the plugin's own list pins them). Dropping the
+folder from the repository also drops it from the CI copy of the Sandbox (`ci_sandbox.py` copies
+`Sandbox~` as it is): a Unity job would then need the same restore step before it compiles, which is
+NOT_RUN (no CI run was made).
 
 ## Agent interface: `Tools~/vfxcli.py`
 
@@ -800,11 +874,18 @@ Each entry is a verified failure: symptom, cause, fix, file.
   `Sandbox~/Logs/Editor.log` had 1005 `error CS` lines (`CS0234 ... 'ReflectorNet'`, `CS0246
   'IMcpPlugin'`, `'HubConnectionState'`, `'ReactiveProperty<>'`), the folder was not recreated, and
   `--close` could not save (Unity-MCP never answered) and killed that PID after its 300 s timeout.
-- **Cause:** the plugin restores its NuGet DLLs only once the editor runs past that dialog, and
-  `setup-sandbox.py --open` does not dismiss it.
-- **Fix:** keep `Assets/Plugins/NuGet` committed (45 DLLs, 19 MB; commit `f0ede9a`; see Sandbox,
-  "The committed NuGet DLLs"). Recovery without it: `unity-mcp-cli open
-  --launch-dismiss-timeout-ms 400000 "$OPEN"` clicks *Ignore*, and the plugin restores the DLLs.
+- **Cause:** the plugin restores its NuGet DLLs only once the editor runs past that dialog, and a
+  plain `unity-mcp-cli open` (30 s dismiss watch) does not wait for it.
+- **Fix:** keep `Assets/Plugins/NuGet` committed (45 DLLs, 17.8 MiB; commit `f0ede9a`; see Sandbox,
+  "The committed NuGet DLLs"). Recovery without it: `python Tools~/setup-sandbox.py --restore-nuget`
+  (and `--open`, which does the same when it finds the folder absent or incomplete against
+  `.nuget-installed.json`) starts the editor with `--launch-dismiss-timeout-ms 400000`, waits for the
+  complete DLL set and a ready editor, and, for `--restore-nuget`, closes it. Tested by hand on
+  2026-11-27: ready after 52.9 s and 44.0 s, 45 of 45 DLLs equal to the committed ones by SHA-256
+  (see Sandbox, "Restoring the DLLs"). By hand: `unity-mcp-cli open --launch-dismiss-timeout-ms 400000
+  "$OPEN"` clicks *Ignore*, and the plugin restores the DLLs. If the restore ends at `not ready`,
+  read `Sandbox~/Logs/Editor.log`, `--close`, and restore from the repository history
+  (`git checkout <commit> -- Sandbox~/Assets/Plugins/NuGet`).
 - **File:** `Sandbox~/Assets/Plugins/NuGet/`, `Sandbox~/Assets/Plugins/NuGet/.nuget-installed.json`.
 
 ### A string literal counts as a GC allocation the first time a method runs
@@ -1201,8 +1282,10 @@ scripts read these formats.
    `.vfx` it builds. Proof: those folders.
 3. `Schemas~/` holds a fourth schema, `vfx-inspect.schema.json` (`cuvara.vfx-inspect/1`), besides
    the recipe, capture and describe schemas. Proof: `Schemas~/vfx-inspect.schema.json`.
-4. `Sandbox~/Assets/Plugins/NuGet/` (the Unity-MCP plugin's 45 DLLs) is committed; DESIGN's Sandbox
-   section does not mention it. Proof: `Sandbox~/Assets/Plugins/NuGet/.nuget-installed.json`.
+4. `Sandbox~/Assets/Plugins/NuGet/` (the Unity-MCP plugin's 45 DLLs, 17.8 MiB) is committed and can be
+   brought back by `setup-sandbox.py --restore-nuget`; the tarball leaves out `Sandbox~` (`package.json`
+   `files`); DESIGN's Sandbox section mentions none of this. Proof:
+   `Sandbox~/Assets/Plugins/NuGet/.nuget-installed.json`, `Tools~/setup-sandbox.py`, `package.json`.
 
 ### Runtime and assemblies
 

@@ -12,6 +12,12 @@ Modes (all print one JSON object on stdout; progress goes to stderr):
   python Tools~/setup-sandbox.py --print-open-path  print only the open path
   python Tools~/setup-sandbox.py --open             set up, start the editor through the open path and
                                                     watch it until it is ready (and --hold seconds more)
+  python Tools~/setup-sandbox.py --restore-nuget    bring back the Unity-MCP NuGet DLLs when
+                                                    Sandbox~/Assets/Plugins/NuGet is absent or incomplete
+                                                    against .nuget-installed.json: start the editor past the
+                                                    compile-errors dialog, wait for the DLLs and a ready
+                                                    editor, close it (--keep-open: leave it running);
+                                                    --open does the same start when it sees the folder missing
   python Tools~/setup-sandbox.py --watch            print PID, private bytes and working set of this
                                                     clone's Sandbox editor (--duration seconds)
   python Tools~/setup-sandbox.py --close            save, close the window of that editor, wait, and
@@ -48,6 +54,9 @@ MCP_PORT_RANGE = 2000
 ENV_MEMORY_LIMIT = "CUVARA_VFX_SANDBOX_MEMORY_LIMIT_GB"
 GB = 1024 ** 3
 SAVE_SNIPPET = "AssetDatabase.SaveAssets(); \"saved\""
+NUGET_DIR = os.path.join("Assets", "Plugins", "NuGet")
+NUGET_MANIFEST = ".nuget-installed.json"
+RESTORE_DISMISS_MS = 400000  # how long unity-mcp-cli keeps clicking Ignore on the compile-errors dialog
 
 
 def log(message):
@@ -356,6 +365,29 @@ def kill_editor(pid, root, reason, report):
     log("killed PID %d (%s); children %s" % (pid, reason, children))
 
 
+def stop_launcher(launcher):
+    """Ends our own `unity-mcp-cli open` launcher (the cmd shim and its node child) by exact PID, no tree kill.
+
+    The editor was started by the launcher; the launcher's job after the launch is only to watch for the
+    compile-errors dialog. Never `taskkill /T`: that could reach the editor.
+    """
+    pids = [p for p, ppid, name, _cmd in list_processes() if ppid == launcher.pid and name.lower().startswith("node")]
+    pids.append(launcher.pid)
+    for pid in pids:
+        if sys.platform == "win32":
+            subprocess.run(["taskkill", "/PID", str(pid), "/F"], capture_output=True, text=True)
+        else:
+            try:
+                os.kill(pid, 15)
+            except OSError:
+                pass
+    try:
+        launcher.communicate(timeout=10)
+    except subprocess.TimeoutExpired:
+        pass
+    return pids
+
+
 def sample(process, started):
     private, working = process.memory()
     return {
@@ -367,6 +399,29 @@ def sample(process, started):
 
 def over_limit(entry, limit_gb):
     return entry["private_gb"] is not None and entry["private_gb"] > limit_gb
+
+
+def nuget_status(sandbox):
+    """State of the committed Unity-MCP NuGet DLLs: complete, incomplete or absent.
+
+    `.nuget-installed.json` (written by the plugin's restore) lists every package and its DLLs. Without
+    that file there is nothing to compare against, so the state is `absent` (also when only some DLLs
+    are there: the plugin restores the full set).
+    """
+    folder = os.path.join(sandbox, NUGET_DIR)
+    manifest = os.path.join(folder, NUGET_MANIFEST)
+    status = {"folder": folder, "state": "absent", "expected": None, "present": 0, "missing": []}
+    try:
+        with open(manifest, encoding="utf-8") as handle:
+            packages = json.load(handle).get("packages", {})
+        expected = sorted({dll for entry in packages.values() for dll in entry.get("dlls", [])})
+    except (OSError, ValueError, AttributeError):
+        return status
+    status["expected"] = len(expected)
+    status["missing"] = [dll for dll in expected if not os.path.isfile(os.path.join(folder, dll))]
+    status["present"] = len(expected) - len(status["missing"])
+    status["state"] = "complete" if expected and not status["missing"] else "incomplete"
+    return status
 
 
 def mcp_ready(open_path):
@@ -404,6 +459,10 @@ def setup(root, report, changes, problems, warnings):
                              "state": "skipped: Samples~/Showcase does not exist"}
     report["links"] = links
     report["mcp"] = ensure_mcp(sandbox, root, changes, warnings)
+    report["nuget"] = nuget_status(sandbox)
+    if report["nuget"]["state"] != "complete":
+        warnings.append("NuGet DLLs %s in %s: run --restore-nuget (--open does the same) or follow the recovery in "
+                        "Documentation~/AUTHORING.md, Pitfalls" % (report["nuget"]["state"], NUGET_DIR))
 
 
 def remove(root, report, changes, problems):
@@ -448,7 +507,14 @@ def watch_process(process, root, args, report, started, stop_when=None, label="w
         time.sleep(args.interval)
 
 
-def open_editor(root, args, report, changes, problems, warnings):
+def open_editor(root, args, report, changes, problems, warnings, restore=False):
+    """Starts the editor and watches it until ready. `restore`: also bring back the NuGet DLLs.
+
+    The Unity-MCP plugin restores its NuGet DLLs only once the editor runs past the compile-errors dialog
+    that the missing DLLs cause (Documentation~/AUTHORING.md, Pitfalls). So a restore start keeps
+    `unity-mcp-cli open` clicking Ignore for RESTORE_DISMISS_MS, and "ready" additionally needs the DLL set
+    to be complete against `.nuget-installed.json`.
+    """
     setup(root, report, changes, problems, warnings)
     if problems:
         return
@@ -456,15 +522,22 @@ def open_editor(root, args, report, changes, problems, warnings):
     if running:
         problems.append("a Sandbox editor of this clone already runs: PID %s" % running)
         return
+    restore = restore or report["nuget"]["state"] != "complete"  # --open restores a missing set by itself
+    report["restore_nuget"] = restore
     cli = shutil.which("unity-mcp-cli")
     if cli is None:
         problems.append("unity-mcp-cli not found")
         return
     open_path = sp.open_path(root)
+    sandbox = sp.sandbox_dir(root)
+    launch = [cli, "open", "--unity", report["editor"]["version"]]
+    if restore:
+        launch += ["--launch-dismiss-timeout-ms", str(RESTORE_DISMISS_MS)]
+        log("NuGet DLLs %s: starting with the launch-errors dialog dismissed for up to %d s" % (
+            report["nuget"]["state"], RESTORE_DISMISS_MS // 1000))
     # `unity-mcp-cli open` keeps running after the launch (it watches for a launch-errors dialog for
     # about 30 s): read its output only up to the PID, so the memory watch starts at once.
-    launcher = subprocess.Popen([cli, "open", "--unity", report["editor"]["version"], open_path],
-                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    launcher = subprocess.Popen(launch + [open_path], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     output, pid = [], None
     for line in launcher.stdout:
         output.append(line)
@@ -484,7 +557,9 @@ def open_editor(root, args, report, changes, problems, warnings):
     ready = {"at": None}
 
     def until_ready_and_held(entry):
-        if ready["at"] is None and mcp_ready(open_path):
+        # After a restore start the plugin writes the DLLs before the editor compiles with them: wait for both.
+        restored = not restore or nuget_status(sandbox)["state"] == "complete"
+        if ready["at"] is None and restored and mcp_ready(open_path):
             ready["at"] = entry["t"]
             log("ready t=%.1fs; holding %d s" % (entry["t"], args.hold))
         return ready["at"] is not None and entry["t"] >= ready["at"] + args.hold
@@ -504,12 +579,43 @@ def open_editor(root, args, report, changes, problems, warnings):
         problems.append("editor PID %d killed above the memory limit" % pid)
     process.close()
     try:  # reap the launcher (our own child), which ends on its own after its dialog watch
-        rest, _ = launcher.communicate(timeout=60)
+        rest, _ = launcher.communicate(timeout=5 if restore and reason == "condition" else 60)
         output.append(rest or "")
     except subprocess.TimeoutExpired:
-        warnings.append("unity-mcp-cli open (PID %d) still running after 60 s" % launcher.pid)
+        if restore and reason == "condition":
+            # The editor is past the dialog: the 400 s dismiss watch of our own launcher is no longer needed.
+            stopped = stop_launcher(launcher)
+            changes.append("stopped the launcher dismiss watch (PIDs %s)" % stopped)
+        else:
+            warnings.append("unity-mcp-cli open (PID %d) still running after 60 s" % launcher.pid)
     if "dismissed Unity launch-errors dialog" in "".join(output):
         warnings.append("unity-mcp-cli dismissed a launch-errors dialog: read the console for compile errors")
+    if restore:
+        report["launcher_output"] = "".join(output).strip()[-600:]
+        report["nuget_after"] = nuget_status(sandbox)
+        if report["nuget_after"]["state"] == "complete":
+            changes.append("restored the NuGet DLLs (%d)" % report["nuget_after"]["present"])
+        elif not problems:
+            problems.append("the editor is ready but the NuGet DLLs are %s" % report["nuget_after"]["state"])
+
+
+def restore_nuget(root, args, report, changes, problems, warnings):
+    """Brings the NuGet DLLs back through the plugin's own restore (see open_editor), then closes the editor."""
+    status = nuget_status(sp.sandbox_dir(root))
+    if status["state"] == "complete":
+        report["nuget"] = status
+        report["restore_nuget"] = False
+        report["state"] = "nothing to restore: %d of %d DLLs present" % (status["present"], status["expected"])
+        return
+    open_editor(root, args, report, changes, problems, warnings, restore=True)
+    if report.get("editor_pid") is None or args.keep_open:
+        return
+    if report.get("state") != "ready":
+        return  # a problem is reported; leave the editor for the caller to inspect with --watch and --close
+    close = {}
+    close_editor(root, args, close, changes, problems, warnings)
+    report["closed"] = {"ended": close.get("ended"), "seconds": close.get("seconds"),
+                        "peak": close.get("peak"), "killed": close.get("killed")}
 
 
 def watch(root, args, report, problems):
@@ -578,6 +684,10 @@ def main():
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--print-open-path", action="store_true", help="print only the open path")
     mode.add_argument("--open", action="store_true", help="set up, start the editor and watch it until ready")
+    mode.add_argument("--restore-nuget", action="store_true",
+                      help="bring back the Unity-MCP NuGet DLLs if Sandbox~/Assets/Plugins/NuGet is absent or "
+                           "incomplete: start the editor past the compile-errors dialog, wait for the DLLs and "
+                           "a ready editor, then close it")
     mode.add_argument("--watch", action="store_true", help="print the memory of this clone's Sandbox editor")
     mode.add_argument("--close", action="store_true", help="save and close this clone's Sandbox editor")
     mode.add_argument("--remove", action="store_true", help="remove the links (links only)")
@@ -587,11 +697,12 @@ def main():
     parser.add_argument("--interval", type=float, default=3.0, help="seconds between memory samples (default 3)")
     parser.add_argument("--timeout", type=int, default=None,
                         help="seconds --open waits for ready (default 900) and --close waits for the exit (default 300)")
+    parser.add_argument("--keep-open", action="store_true", help="with --restore-nuget: leave the editor running")
     parser.add_argument("--hold", type=int, default=0, help="with --open: keep watching this many seconds after ready")
     parser.add_argument("--duration", type=int, default=0, help="with --watch: seconds to keep sampling (0: one sample)")
     args = parser.parse_args()
     if args.timeout is None:
-        args.timeout = 900 if args.open else 300
+        args.timeout = 900 if (args.open or args.restore_nuget) else 300
 
     root = sp.repo_root()
     if args.print_open_path:
@@ -607,6 +718,8 @@ def main():
             problems.append("Sandbox~ not found at " + sp.sandbox_dir(root))
         elif args.remove:
             remove(root, report, changes, problems)
+        elif args.restore_nuget:
+            restore_nuget(root, args, report, changes, problems, warnings)
         elif args.open:
             open_editor(root, args, report, changes, problems, warnings)
         elif args.watch:

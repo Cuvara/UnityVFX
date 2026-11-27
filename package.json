@@ -23,5 +23,9 @@
   },
   "testables": [
     "com.cuvara.vfx"
+  ],
+  "files": [
+    "*",
+    "!Sandbox~"
   ]
 }

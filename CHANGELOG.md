@@ -14,6 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `package.json` (`com.cuvara.vfx` 0.1.0, Unity 6000.6, dependencies `com.unity.visualeffectgraph`
   17.6.0 and `com.unity.render-pipelines.universal` 17.6.0, `testables`), MIT licence, README,
   `.gitignore` and `.gitattributes`.
+- `package.json` `files` (`["*", "!Sandbox~"]`): an npm or OpenUPM tarball leaves out `Sandbox~` (133
+  entries, the 45 Unity-MCP NuGet DLLs, 17.8 MiB); checked with `npm pack --dry-run` in a copy outside
+  the repository: 349 entries before, 217 after. A Git URL install still downloads the whole
+  repository (`THIRD-PARTY.md`).
 
 #### Runtime (assembly `Cuvara.VFX`)
 
@@ -146,6 +150,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   bytes) plus `--remove` / `--print-open-path`. Unity 6000.6 cannot map package scripts to classes
   when the project path has a `~` or `.` component, so the Sandbox is always opened through the
   open path.
+- `Tools~/setup-sandbox.py --restore-nuget` (and `--open`, when it finds the folder missing): brings
+  the Unity-MCP NuGet DLLs of `Sandbox~/Assets/Plugins/NuGet` back through the plugin's own restore when
+  the folder is absent or incomplete against `.nuget-installed.json` (`unity-mcp-cli open
+  --launch-dismiss-timeout-ms 400000`, ready only when the set is complete and the editor compiled;
+  memory guard on; `--keep-open`). `python Tools~/setup-sandbox.py` reports the state under `nuget`.
+  Tested by hand with the committed folder moved away: ready after 52.9 s and 44.0 s, 45 of 45 DLLs
+  identical to the committed ones by SHA-256.
 - `Tools~/vfxcli.py <verb> [--project] [--args | --json] [--out] [--mode] [--timeout]
   [--memory-limit-gb]`: runs a verb through Unity-MCP `script-execute` when the Sandbox editor is
   open (arguments and result through files), else through a batch-mode editor with graphics under

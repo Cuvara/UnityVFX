@@ -46,7 +46,9 @@ only the workspace, so the jobs make the same layout with copies and no link:
 `<home>/package`, when the home is inside the repository that holds the script, when the manifest
 does not reference `file:../../package`, when the project path has a hidden component, when
 `Sandbox~` or `Samples~/Showcase` holds a link, or when `<home>/Sandbox` exists already. It creates
-no link and deletes nothing.
+no link and deletes nothing. The copy carries the committed `Assets/Plugins/NuGet` DLLs the Unity-MCP
+plugin needs to compile; if they ever leave the repository (`THIRD-PARTY.md`), a Unity job needs a restore step
+first (`setup-sandbox.py --restore-nuget` needs an editor with a display and network access; not tried in CI).
 
 The Unity jobs then:
 

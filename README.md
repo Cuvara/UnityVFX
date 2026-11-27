@@ -88,7 +88,7 @@ the `.vfx` it builds. Never edit a `.vfx` as text.
 | `Schemas~/` | JSON Schemas (draft 2020-12): recipe, describe, inspect, capture stats |
 | `Tools~/` | `vfxcli.py`, `setup-sandbox.py`, `sandbox_paths.py` |
 | `Sandbox~/` | agent-owned Unity 6000.6.9f1 project (URP, VFX Graph, Unity-MCP, Test Framework, Input System) that references this package as `file:../../package` through the open path |
-| `Sandbox~/Assets/Plugins/NuGet/` | the Unity-MCP plugin's third-party DLLs, committed because the plugin does not restore them on its own (AUTHORING.md, "The committed NuGet DLLs"); their licence entries belong in `THIRD-PARTY.md`, written by the Showcase task |
+| `Sandbox~/Assets/Plugins/NuGet/` | the Unity-MCP plugin's third-party DLLs, committed so a first open compiles; `python Tools~/setup-sandbox.py --restore-nuget` brings them back if they are removed, and the npm tarball leaves out `Sandbox~` (AUTHORING.md, "The committed NuGet DLLs"); their licence entries are in `THIRD-PARTY.md` |
 | `.github/` | CI workflow and the licence-free validation scripts |
 | `Documentation~/` | the documents below |
 

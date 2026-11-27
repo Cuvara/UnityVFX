@@ -120,7 +120,14 @@ redistribute the Assets (in original or modified form) as a standalone asset, as
 file, template, or similar product, whether for free or for payment, and whether alone or bundled
 with other assets." The two packs taken here state CC0 1.0 in the licence files inside their
 archives and on their pack pages (quoted above), and CC0 1.0 is the licence this repository relies
-on. The owner decides before a public release whether that reading holds.
+on.
+
+**Owner decision before public release.** Whether that reading holds, and so whether the two
+Quaternius packs may stay in this repository, is open. The facts: the licence files in the archives and
+the pack pages say CC0 1.0; the site-wide page says QAL v1.0 for assets "released by Quaternius under
+this License". Nobody has made the legal reading. Nothing is removed now. The characters are cheap to
+drop later: the placeholder `VfxMannequin` (`Runtime/Showcase/VfxMannequin.cs`) stands in when
+`Samples~/Showcase/Characters` has no model, and removing that folder removes every Quaternius file.
 
 ## Unity-MCP NuGet DLLs in the Sandbox project
 
@@ -132,6 +139,28 @@ committed NuGet DLLs"). They live only in the Sandbox project: the package does 
 Unity does not import a folder whose name ends in `~` from a package, and no code of the package
 references them. They are still files in this Git repository, so this repository redistributes
 them, and this section is their notice.
+
+**Owner decision before public release.** The three `Rql.*.dll` files (`com.IvanMurzak.Rql` 0.3.0) are
+under the PolyForm Shield License 1.0.0, which is not an open source licence and has a "Noncompete"
+section (see "Licences" below for the wording). Nobody has judged how far that clause reaches for a
+repository that redistributes the DLLs. Nothing is removed now; the whole set can leave the
+repository (see "What each install route downloads" next).
+
+**What each install route downloads.**
+
+| Route | Carries `Sandbox~/` and its 45 DLLs? |
+|---|---|
+| Git URL install (`https://github.com/<owner>/UnityVFX.git`, UPM clones the repository) | Yes: the whole repository is downloaded, `Sandbox~/` included (about 17.8 MiB of DLLs). Unity imports no folder whose name ends in `~`, so the DLLs are on disk in the package cache but are never imported or compiled. |
+| npm or OpenUPM tarball (`npm pack`, `npm publish`) | No: `package.json` has `"files": ["*", "!Sandbox~"]`, which leaves `Sandbox~/` out. The tarball keeps `Samples~/`, `Documentation~/`, `Schemas~/`, `Tools~/`, `Library/`, `Effects/`, `Runtime/`, `Editor/`, `Tests/` and the root files. |
+| Clone of the repository | Yes: the DLLs are committed files. |
+
+The DLLs can leave the repository without breaking a fresh clone: `python Tools~/setup-sandbox.py
+--restore-nuget` brings them back through the Unity-MCP plugin's own restore (also done by `--open` when
+the folder is missing or incomplete against `.nuget-installed.json`). Steps and the measured run:
+`Documentation~/AUTHORING.md`, "The committed NuGet DLLs". To remove them, delete
+`Sandbox~/Assets/Plugins/NuGet` and `Sandbox~/Assets/Plugins/NuGet.meta` and the DLL section of this
+file in one commit; a Git URL install then no longer downloads them either (history keeps them; a
+history rewrite is a separate owner decision).
 
 The plugin that needs them:
 
@@ -153,9 +182,9 @@ commit `c254c320050eb2a6e9e493e354b2e7e637678a49`.
 | `McpPlugin.dll` | com.IvanMurzak.McpPlugin | 8.19.0 | 8.19.0 (assembly 8.19.0.0) | `lib/netstandard2.1` | Ivan Murzak | Apache-2.0 | https://www.nuget.org/packages/com.IvanMurzak.McpPlugin/8.19.0/License | https://github.com/IvanMurzak/MCP-Plugin-dotnet |
 | `McpPlugin.Common.dll` | com.IvanMurzak.McpPlugin.Common | 8.19.0 | 8.19.0 (assembly 8.19.0.0) | `lib/netstandard2.1` | Ivan Murzak | Apache-2.0 | https://www.nuget.org/packages/com.IvanMurzak.McpPlugin.Common/8.19.0/License | https://github.com/IvanMurzak/MCP-Plugin-dotnet |
 | `ReflectorNet.dll` | com.IvanMurzak.ReflectorNet | 5.5.1 | 5.5.1 (assembly 5.5.1.0) | `lib/netstandard2.1` | Ivan Murzak | Apache-2.0 | https://licenses.nuget.org/Apache-2.0 | https://github.com/IvanMurzak/ReflectorNet |
-| `Rql.Contracts.dll` | com.IvanMurzak.Rql | 0.3.0 | 0.3.0 (assembly 0.3.0.0) | `lib/netstandard2.1` | Ivan Murzak | LicenseRef-PolyForm-Shield-1.0.0 | https://www.nuget.org/packages/com.IvanMurzak.Rql/0.3.0/License | https://github.com/IvanMurzak/RQL |
-| `Rql.Execution.dll` | com.IvanMurzak.Rql | 0.3.0 | 0.3.0 (assembly 0.3.0.0) | `lib/netstandard2.1` | Ivan Murzak | LicenseRef-PolyForm-Shield-1.0.0 | https://www.nuget.org/packages/com.IvanMurzak.Rql/0.3.0/License | https://github.com/IvanMurzak/RQL |
-| `Rql.Parser.dll` | com.IvanMurzak.Rql | 0.3.0 | 0.3.0 (assembly 0.3.0.0) | `lib/netstandard2.1` | Ivan Murzak | LicenseRef-PolyForm-Shield-1.0.0 | https://www.nuget.org/packages/com.IvanMurzak.Rql/0.3.0/License | https://github.com/IvanMurzak/RQL |
+| `Rql.Contracts.dll` | com.IvanMurzak.Rql | 0.3.0 | 0.3.0 (assembly 0.3.0.0) | `lib/netstandard2.1` | Ivan Murzak | LicenseRef-PolyForm-Shield-1.0.0: **owner decision before public release** | https://www.nuget.org/packages/com.IvanMurzak.Rql/0.3.0/License | https://github.com/IvanMurzak/RQL |
+| `Rql.Execution.dll` | com.IvanMurzak.Rql | 0.3.0 | 0.3.0 (assembly 0.3.0.0) | `lib/netstandard2.1` | Ivan Murzak | LicenseRef-PolyForm-Shield-1.0.0: **owner decision before public release** | https://www.nuget.org/packages/com.IvanMurzak.Rql/0.3.0/License | https://github.com/IvanMurzak/RQL |
+| `Rql.Parser.dll` | com.IvanMurzak.Rql | 0.3.0 | 0.3.0 (assembly 0.3.0.0) | `lib/netstandard2.1` | Ivan Murzak | LicenseRef-PolyForm-Shield-1.0.0: **owner decision before public release** | https://www.nuget.org/packages/com.IvanMurzak.Rql/0.3.0/License | https://github.com/IvanMurzak/RQL |
 | `Microsoft.AspNetCore.Connections.Abstractions.dll` | Microsoft.AspNetCore.Connections.Abstractions | 8.0.33 | 8.0.33 (assembly 8.0.0.0) | `lib/netstandard2.1` | Microsoft Corporation | MIT | https://licenses.nuget.org/MIT | https://github.com/dotnet/aspnetcore |
 | `Microsoft.AspNetCore.Http.Connections.Client.dll` | Microsoft.AspNetCore.Http.Connections.Client | 8.0.33 | 8.0.33 (assembly 8.0.33.0) | `lib/netstandard2.1` | Microsoft Corporation | MIT | https://licenses.nuget.org/MIT | https://github.com/dotnet/aspnetcore |
 | `Microsoft.AspNetCore.Http.Connections.Common.dll` | Microsoft.AspNetCore.Http.Connections.Common | 8.0.33 | 8.0.33 (assembly 8.0.0.0) | `lib/netstandard2.0` | Microsoft Corporation | MIT | https://licenses.nuget.org/MIT | https://github.com/dotnet/aspnetcore |
