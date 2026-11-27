@@ -228,7 +228,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   CHANGELOG heading, `.meta` coverage, asmdef names, the JSON Schemas as valid draft 2020-12
   schemas, committed recipes against the recipe schema, Python compile, workflow YAML) and game-ci
   EditMode and PlayMode jobs on a copy of the Sandbox laid out like the open path
-  (`.github/scripts/ci_sandbox.py`), skipped when the `UNITY_LICENSE` secret is absent.
+  (`.github/scripts/ci_sandbox.py`), skipped when the `UNITY_LICENSE` secret is absent. The jobs use
+  `game-ci/unity-test-runner@v4.3.2`: v4.3.1 starts the editor container with Docker's default 64 MB
+  `/dev/shm`, and Unity 6000.6 aborts with "Insufficient shared memory available".
   `check_metas.py` does not judge `.meta` files under dot or `~` paths (the nested `Sandbox~`
   project, `Samples~`).
 - `Documentation~/AUTHORING.md` (the authoring guide, the verified pitfalls and the 49 differences from

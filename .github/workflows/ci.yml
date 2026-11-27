@@ -130,7 +130,7 @@ jobs:
             Library-editmode-${{ env.UNITY_VERSION }}-
 
       - name: Run EditMode tests
-        uses: game-ci/unity-test-runner@v4.3.1
+        uses: game-ci/unity-test-runner@v4.3.2
         env:
           UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
           UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
@@ -178,7 +178,7 @@ jobs:
             Library-playmode-${{ env.UNITY_VERSION }}-
 
       - name: Run PlayMode tests
-        uses: game-ci/unity-test-runner@v4.3.1
+        uses: game-ci/unity-test-runner@v4.3.2
         env:
           UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
           UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
