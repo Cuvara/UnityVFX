@@ -124,3 +124,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   project, `Samples~`).
 - `Documentation~/AUTHORING.md` (the authoring guide, the verified pitfalls and the differences from
   DESIGN.md), `CAPTURE.md`, `CI.md` and `DESIGN.md`.
+
+### Changed
+
+- An unknown name error now reads `unknown <what> '<name>'; valid names (nearest first): ...`
+  instead of forming a plural from `<what>`.
+- `describe` prints `resource_version`, and it warns when a graph is older than the installed
+  VFX Graph (the next compile would upgrade it in memory).
+- The compile report of `build` and `apply` has `upgraded`. When VFX Graph logs "The source graph
+  was out of date and has been upgraded before compilation", the result gets a warning; for
+  `build` it is an error.
+- `CaptureTests.SameSeedTwice_GivesTheSamePeak_NoMinusOne_AndAllFiles` is reported as Ignored,
+  with the reason, when the editor has no graphics device or no compute shader support
+  (Documentation~/CI.md, "GPU tests").
+
+### Fixed
+
+- A built graph and a new subgraph were saved at resource version 0, so VFX Graph converted every
+  gradient colour key with `Color.linear` at each compile, and `describe` did not match the
+  compiled graph. A new graph is now at the current graph and resource versions before the first
+  op. `apply` upgrades an older asset before its ops and warns. The BurstQuads fixture is rebuilt
+  (`m_ResourceVersion: 1`).
+- The README quick start built the tracked fixture in place and wrote `catalog.json` into the
+  repository root. It now uses a copy under `Sandbox~/Assets/Scratch` and a gitignored `vfx-out/`
+  folder.

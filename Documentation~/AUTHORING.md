@@ -362,7 +362,7 @@ An unknown top-level field is an error.
 Names, fields and one-line summaries are also printed by `catalog` (`recipe_ops`,
 `recipe_op_fields`). An unknown op, field, id, type, variant, setting, slot or enum value is an
 error that names the op index and lists the valid names, nearest first (`op 3 (add_block 'burst'):
-unknown block type 'VFXSpawnerBurstt'; valid block types (nearest first): VFXSpawnerBurst, ...`);
+unknown block type 'VFXSpawnerBurstt'; valid names (nearest first): VFXSpawnerBurst, ...`);
 the result also carries `op_error` (`index`, `op`, `message`, `valid_names`). The first failing op
 stops the build.
 
@@ -403,6 +403,14 @@ stops the build.
   of their fields (`{"center": [0, 1, 0], "size": [4, 4, 4]}`), and a struct with one field
   (`Position.position`, `Vector.vector`) also as that field's value (`[0, 1, 0]`). A map changes
   only the fields it names.
+- **Gradient colours are stored and compiled as written.** DESIGN.md names no colour space for a
+  recipe gradient. The rule: the `color_keys` of a recipe are the values VFX Graph 17.6 stores in
+  the graph and hands to the shader, the same values the graph window's gradient field holds. In
+  the Sandbox (Linear colour space) they are linear values; `[1, 0.6, 0.3]` is not converted from
+  sRGB. `describe` prints the same values (`color_space` is the `Gradient.colorSpace` Unity stores,
+  `Uninitialized` for a gradient made by script). This holds because a new graph is at the current
+  resource version before the first op (Pitfalls: "Gradient colours of a built graph changed at
+  the first compile").
 - **Asset values** (a texture slot, a `Texture2D` parameter, `set_output` `texture`) are a
   project-relative path (`Assets/...`, `Packages/<package>/...`), `{"guid": "<32 hex>"}` or
   `{"path": "..."}`; the builder loads the asset and the graph stores its GUID (`describe` prints
@@ -451,15 +459,25 @@ node's setting `m_Subgraph` (`path`, `guid`), its inputs under `inputs` and link
 2. Create the graph in `Assets/CuvaraVfxBuildTemp/<Name>.vfx` with VFX Graph's
    `VisualEffectAssetEditorUtility.CreateNewAsset` (`apply`: copy the asset there with
    `AssetDatabase.CopyAsset`).
-3. Run the ops through `VfxGraphBridge.GraphEdit` (`VFXModel.AddChild`, `SetSettingValue`,
+3. Bring the graph to the installed graph version (`VFXGraph.CurrentVersion`, 19) and resource
+   version (`VisualEffectResource.CurrentVersion`, 1) with VFX Graph's `VFXGraph.SanitizeGraph`,
+   before the first op. A new graph is empty, so nothing is converted. An `apply` on a graph saved
+   by an older VFX Graph upgrades it here, as the graph window would, and adds a warning that
+   names the old resource version; below resource version 1 VFX Graph converts the graph's
+   existing gradient colour keys with `Color.linear`. The ops then write their values into a
+   current graph, so the values are not converted.
+4. Run the ops through `VfxGraphBridge.GraphEdit` (`VFXModel.AddChild`, `SetSettingValue`,
    `VFXSlot.value`, `VFXSlot.Link`, `VFXContext.LinkTo`), place the new nodes, give each parameter
    its graph node, and write the file with `VisualEffectResource.WriteAssetWithSubAssets`. No `.vfx`
    text is written or patched.
-4. Compile (`VfxGraphBridge.CompileReport`): the in-memory compile the graph window makes
+5. Compile (`VfxGraphBridge.CompileReport`): the in-memory compile the graph window makes
    (`VFXGraph.Compile`), the errors VFX Graph reports per node, a re-import of the copy (which
    generates the shaders) with every error logged meanwhile, and the error messages of the
-   generated shaders. Any error stops here; the real asset has not been touched.
-5. Copy the compiled file over `<Name>.vfx` and re-import it. Its `.meta` is not written, so its
+   generated shaders. Any error stops here; the real asset has not been touched. When VFX Graph
+   logs "The source graph was out of date and has been upgraded before compilation" during the
+   compile, the result gets a `compile:` warning that quotes it; for `build` it is an error
+   (`compile_errors`), because a new graph is current before the first op.
+6. Copy the compiled file over `<Name>.vfx` and re-import it. Its `.meta` is not written, so its
    GUID stays the same (`guid_stable`). The temporary folder is deleted in every case.
 
 Result payload: `recipe`, `recipe_sha256`, `recipe_id` (build only), `asset` (`path`, `guid`),
@@ -468,7 +486,8 @@ Result payload: `recipe`, `recipe_sha256`, `recipe_id` (build only), `asset` (`p
 `systems` (`id`, `name`, `data_type`, `capacity`). Compile warnings become warnings of the result.
 
 A recipe is deterministic in its graph, not in its bytes: two builds gave the same
-`describe_sha256` (`1224b507...`, twice) and different `.vfx` SHA-256 (see Pitfalls). Compare
+`describe_sha256` (`1224b507...`, twice, before the resource-version fix; the committed fixture
+now describes to `ee4addf6...`) and different `.vfx` SHA-256 (see Pitfalls). Compare
 `describe` output, not file hashes.
 
 ## Texture import
@@ -1024,9 +1043,44 @@ Each entry is a verified failure: symptom, cause, fix, file.
 - **Cause:** ACES tonemapping lowers the dark and middle range; a low key light on a horizontal
   ground lights it at a grazing angle.
 - **Fix:** brighter presets (dusk key 1.6 at 20 degrees, brighter ambient) and post exposure
-  (+1 EV day and dusk, +0.75 EV night). Mean luminance of the 0.3 s frame: day 0.186, dusk 0.029,
-  night 0.015; the ground and backdrop read in all three.
+  (+1 EV day and dusk, +0.75 EV night). Mean luminance of the 0.3 s frame: day 0.188, dusk 0.031,
+  night 0.017 (measured again after the gradient fix below; before it: 0.186, 0.029, 0.015); the
+  ground and backdrop read in all three.
 - **File:** `Runtime/Presets/VfxLightingPreset.cs`.
+
+### Gradient colours of a built graph changed at the first compile
+
+- **Symptom:** the BurstQuads fixture was saved with `m_ResourceVersion: 0`. Before
+  `VFXGraph.PrepareGraph`, `describe` gave the colour-over-life keys `[1, 0.6, 0.3]` and
+  `[0.6, 0.1, 0.05]`. After a compile, or after the graph window opened the graph, it gave
+  `[1, 0.3185, 0.0732]` and `[0.3185, 0.0100, 0.0039]`. The console showed "The source graph was
+  out of date and has been upgraded before compilation" at every compile and import (82 warnings
+  in one QA session). The rendered colours were darker than the recipe's, `describe` of one asset
+  depended on what had run before it, and a save from the graph window rewrote the stored gradient.
+- **Cause:** VFX Graph's own `VisualEffectAssetEditorUtility.CreateNewAsset` (and `CreateNew<T>`
+  for subgraphs) writes a graph with no `m_ResourceVersion`, so it is 0, while
+  `VisualEffectResource.CurrentVersion` is 1 in VFX Graph 17.6.0. `VFXGraph.SanitizeGraph`
+  (`Editor/Models/VFXGraph.cs`, lines 943 to 971 of the installed source), which `PrepareGraph`
+  runs at every compile, treats a graph below resource version 1 as "before gradient interpreted
+  as linear". It converts every `VFXSlotGradient` colour key with `Color.linear`, then sets the
+  current versions in memory only. The builder had written the recipe's gradient into that
+  version-0 graph and saved it unchanged, so every compile converted the authored values again.
+- **Fix:** `GraphEdit.Create`, `CreateSubgraph` and `Open` call `VFXGraph.SanitizeGraph` before
+  the first op when the graph's graph or resource version is below the installed one, then check
+  that both are current. A new graph is empty, so nothing is converted, and the saved asset has
+  `m_ResourceVersion: 1` and `m_GraphVersion: 19`. `apply` on an older asset upgrades it before the
+  ops and warns. `CompileReport` returns `upgraded` and a warning when VFX Graph logs the upgrade;
+  `build` treats it as an error. `describe` prints `resource_version` and warns on an out-of-date
+  graph. The fixture was rebuilt; the 0.3 s luminance values of the capture presets went up
+  (CAPTURE.md), and the alive counts did not change. Tests: `RecipeBuildTests`
+  `Build_SavesTheCurrentGraphAndResourceVersions` and
+  `Build_DescribeIsTheSameBeforeAndAfterPrepareGraph_AndAfterAReimport_WithTheAuthoredGradient`,
+  `RecipeCoverageTests.Bridge_NewSubgraphs_AreSavedAtTheCurrentGraphAndResourceVersions`. With the
+  version step disabled, they fail with `color_keys[1].color[1] Expected: 0.6 +/- 0.0001 But was:
+  0.318546832`, with the upgrade warning in the build result, and with `Twice.vfxoperator resource
+  version Expected: 1 But was: 0`.
+- **File:** `Editor/Bridge/VfxGraphBridge.Edit.cs` (`BringToCurrentVersions`, `CompileReport`),
+  `Editor/Recipe/VfxRecipeBuilder.cs` (`Run`), `Editor/Bridge/VfxGraphBridge.cs` (`Describe`).
 
 ### Other observations
 
@@ -1078,9 +1132,10 @@ Each entry is a verified failure: symptom, cause, fix, file.
 ## Differences from DESIGN.md
 
 Every place where the built verbs, formats, schemas or layout differ from
-[DESIGN.md](DESIGN.md), checked against the code on 2026-11-13. These differences are not written
-into DESIGN.md; the run lead decides whether the contract adopts them. Additions that keep every
-DESIGN field and behaviour are listed too, because rpg-factory scripts read these formats.
+[DESIGN.md](DESIGN.md), checked against the code on 2026-11-13 and updated on 2026-11-27. These
+differences are not written into DESIGN.md; the run lead decides whether the contract adopts
+them. Additions that keep every DESIGN field and behaviour are listed too, because rpg-factory
+scripts read these formats.
 
 ### Layout
 
@@ -1149,97 +1204,109 @@ DESIGN field and behaviour are listed too, because rpg-factory scripts read thes
     include those a model forwards (Initialize data settings). Proof: `Editor/Verbs/CatalogVerb.cs`,
     `Editor/Bridge/VfxGraphBridge.cs` (`Catalog`), `Editor/Bridge/VfxGraphBridge.Edit.cs`
     (`UserSettings`).
+17. Key change: DESIGN says each entry carries "slots (name, type)". An entry has no `slots` key.
+    It has `inputs` and `outputs`, and each slot in them has `name`, `type`, `ref` (the address a
+    recipe uses), `type_full`, `direction` (`in` or `out`), `default` (inputs only) and `space`
+    (spaceable slots only). Proof: `Editor/Bridge/VfxGraphBridge.cs` (`CatalogSlots`).
 
 ### describe
 
-17. Payload superset: `schema` `cuvara.vfx-describe/1`, `asset`, `asset_kind`, `graph_version`,
+18. Payload superset: `schema` `cuvara.vfx-describe/1`, `asset`, `asset_kind`, `graph_version`,
+    `resource_version` (with a warning when the graph is older than the installed VFX Graph),
     `other_models`, `sticky_notes`, `groups`; systems with `data_type`, `capacity` (null for a
     spawner) and their contexts; a parameter's `tooltip` only when set. Blocks are listed inside
     their context. Proof: `Schemas~/vfx-describe.schema.json`, `Editor/Bridge/VfxGraphBridge.cs`
     (`Describe`).
-18. Ids are assigned by describe (`c0`, `c0.b0`, `o0`, `p0`, `x0`, `s0`); unnamed slots (math
+19. Ids are assigned by describe (`c0`, `c0.b0`, `o0`, `p0`, `x0`, `s0`); unnamed slots (math
     operator outputs) are addressed `<id>.#<index>`; links are listed once, from the input side,
     sorted. Proof: `Editor/Bridge/VfxGraphBridge.cs` (`AssignIds`, slot paths).
-19. `describe` also takes `.vfxoperator` and `.vfxblock` subgraph assets and an absolute path inside
+20. `describe` also takes `.vfxoperator` and `.vfxblock` subgraph assets and an absolute path inside
     a local package. Proof: `Editor/Bridge/VfxGraphBridge.cs`, `Editor/Verbs/DescribeVerb.cs`.
 
 ### Recipe, build and apply
 
-20. Op fields are fixed by the implementation (DESIGN named only the ops): `set_setting` `node`,
+21. Op fields are fixed by the implementation (DESIGN named only the ops): `set_setting` `node`,
     `name`, `value`; `set_slot` `slot`, `value`, `space`; `link_flow` `from`, `to`, `from_slot`,
     `to_slot`; `use_subgraph` `id`, `asset`, `context`, `slots` (no `settings`: the only setting
     of a subgraph node in 17.6 is its asset); `set_output` `node`, `texture`, `blend_mode`,
     `color_mapping`, `gradient`; `comment` `text`, `title`; `add_parameter` also `category`,
     `tooltip`; `add_context` also `label`. Proof: `Editor/Recipe/VfxRecipeOps.cs`,
     `Schemas~/vfx-recipe.schema.json`.
-21. New optional field `variant` on `add_context`, `add_block`, `add_operator` (a catalog variant
+22. New optional field `variant` on `add_context`, `add_block`, `add_operator` (a catalog variant
     id). Proof: `Editor/Recipe/VfxRecipeOps.cs`.
-22. Slot addresses: a slot without a name is `<id>.#<index>` (DESIGN: never by index); `<id>.out`
+23. Slot addresses: a slot without a name is `<id>.#<index>` (DESIGN: never by index); `<id>.out`
     is an alias for the only output of a node with exactly one (a parameter's real output slot is
     `o`), which makes DESIGN's `p_color.out` work. Proof: `Editor/Bridge/VfxGraphBridge.Edit.cs`
     (slot lookup).
-23. `add_parameter.type` takes the catalog parameter `name` (`Color`, `Vector 3`) or `type`
+24. `add_parameter.type` takes the catalog parameter `name` (`Color`, `Vector 3`) or `type`
     (`Vector3`). Proof: `Editor/Bridge/VfxGraphBridge.Edit.cs`.
-24. Asset values: a project-relative path (as DESIGN says), or `{"guid": ...}` or `{"path": ...}`
+25. Asset values: a project-relative path (as DESIGN says), or `{"guid": ...}` or `{"path": ...}`
     (both together must name the same asset). Proof: `Editor/Bridge/VfxGraphBridge.Edit.cs`
     (`LoadAsset`), `Schemas~/vfx-recipe.schema.json` (`assetRef`).
-25. The schema requires a kebab-case `id`; `build` only requires a non-empty string. Unknown
+26. The schema requires a kebab-case `id`; `build` only requires a non-empty string. Unknown
     top-level and op fields are errors (DESIGN does not say). Proof:
     `Schemas~/vfx-recipe.schema.json`, `Editor/Recipe/VfxRecipeBuilder.cs`.
-26. `apply` addresses existing nodes by the ids `describe` prints. Proof:
+27. `apply` addresses existing nodes by the ids `describe` prints. Proof:
     `Editor/Recipe/VfxRecipeBuilder.cs`, `Editor/Bridge/VfxGraphBridge.cs` (`AssignIds`).
-27. Payload additions of `build` and `apply`: `recipe_sha256`, `recipe_id` (build), `ops_applied`,
+28. Payload additions of `build` and `apply`: `recipe_sha256`, `recipe_id` (build), `ops_applied`,
     `created`, `guid_stable`, `previous_sha256`, `sha256`, `describe_sha256`, and `op_error` on a
     failure. Proof: `Editor/Recipe/VfxRecipeBuilder.cs`.
-28. Determinism holds at the `describe` level, not in the `.vfx` bytes (Unity gives sub-assets new
+29. Determinism holds at the `describe` level, not in the `.vfx` bytes (Unity gives sub-assets new
     local file ids on each write); DESIGN's "describe to the same JSON" holds. Proof: Pitfalls, "Two
     builds of the same recipe give different `.vfx` bytes".
+30. DESIGN names no colour space for a recipe gradient. Rule: the colour keys are stored and
+    compiled as written. A new graph is brought to the current graph and resource versions before
+    the first op, and `apply` upgrades an older asset before its ops and warns. A VFX Graph upgrade
+    logged during the compile is a warning in the result, and an error for `build`. The compile
+    report adds `upgraded`. Proof: `Editor/Bridge/VfxGraphBridge.Edit.cs`
+    (`BringToCurrentVersions`, `CompileReport`), Pitfalls, "Gradient colours of a built graph
+    changed at the first compile".
 
 ### import-texture
 
-29. Step parameters are fixed by the implementation: `luminance_to_alpha` `color` (`keep`, `white`,
+31. Step parameters are fixed by the implementation: `luminance_to_alpha` `color` (`keep`, `white`,
     `unpremultiply`); `pack_channels` `r`, `g`, `b`, `a` (a constant or `{"file", "channel"}`);
     `resize_pot` `max_size`; `flipbook` `columns`, `rows`; `wrap` `u`, `v` or `mode`. A step is a
     name or an object `{"step": name, ...}`. Proof: `Editor/Texture/VfxTextureSteps.cs`.
-30. `flipbook` checks and records the frame grid; it does not move pixels. Proof:
+32. `flipbook` checks and records the frame grid; it does not move pixels. Proof:
     `Editor/Texture/VfxTextureSteps.cs`.
-31. Payload beyond the two hashes: `source_size`, `steps`, `inputs` (each `pack_channels` file with
+33. Payload beyond the two hashes: `source_size`, `steps`, `inputs` (each `pack_channels` file with
     its SHA-256), `size`, `flipbook`, `created`, `previous_sha256`, `guid`, `guid_stable`,
     `import_settings`, and `step_error` on a failure. Proof: `Editor/Texture/VfxTextureImport.cs`.
 
 ### inspect
 
-32. Output fields the DESIGN row does not list: `effect`, `asset`, `prefab`, `recipe`,
+34. Output fields the DESIGN row does not list: `effect`, `asset`, `prefab`, `recipe`,
     `build_target`, `describe_sha256`, per output `effective` and `render_settings`, per texture
     `estimated_bytes`, `readable` and `used_by`, `exposed_properties[].overrides`,
     `hdr_colors[].intensity`, `totals`. Proof: `Schemas~/vfx-inspect.schema.json`.
-33. A prefab must hold exactly one `VisualEffect`; with several it is an error (inspect each `.vfx`).
+35. A prefab must hold exactly one `VisualEffect`; with several it is an error (inspect each `.vfx`).
     Proof: `Editor/Inspect/VfxInspect.cs`.
 
 ### capture
 
-34. `VfxCli.Run("capture")` returns a pending result (`pending`, `job`, `out`, `result_file`); the
+36. `VfxCli.Run("capture")` returns a pending result (`pending`, `job`, `out`, `result_file`); the
     final result is in `result_file`. vfxcli.py waits for it. Proof: `Editor/Capture/VfxCaptureJob.cs`.
-35. `effect` in `stats.json` is the project path (`Packages/com.cuvara.vfx/...`), not the path in the
+37. `effect` in `stats.json` is the project path (`Packages/com.cuvara.vfx/...`), not the path in the
     repository. Proof: `Editor/Capture/VfxCaptureRequest.cs` (`Parse`).
-36. `stats.json` has three more fields, `resolution`, `probe_interval`, `settle_frames`; the final
+38. `stats.json` has three more fields, `resolution`, `probe_interval`, `settle_frames`; the final
     verb result adds `out`, `stats_file`, `probes`, `pending`, `job`. Proof:
     `Schemas~/vfx-capture.schema.json`, `Editor/Capture/VfxCaptureSession.cs`.
-37. `mean_luminance` and `max_luminance` are measured after ACES tonemapping, so `max_luminance`
+39. `mean_luminance` and `max_luminance` are measured after ACES tonemapping, so `max_luminance`
     stays near or below 1 (DESIGN's example shows 7.8). Proof: `Editor/Capture/VfxCaptureSession.cs`.
-38. More optional inputs: `delta_time`, `width`, `height`, `columns`, `probe_interval`,
+40. More optional inputs: `delta_time`, `width`, `height`, `columns`, `probe_interval`,
     `settle_frames`, `max_seconds`, `timeout_seconds`; defaults `seed` 1234, `times` 8 samples over
     the recipe's `meta.duration_seconds` (1 s without a recipe), `out`
     `<project>/Captures/<effect>/seed-<seed>-<camera>-<lighting>`. Proof:
     `Editor/Capture/VfxCaptureRequest.cs`.
-39. `alive.peak` is the largest count over the samples and the probes (every `probe_interval`,
+41. `alive.peak` is the largest count over the samples and the probes (every `probe_interval`,
     default 0.05 s), not over every frame; each count is read after the effect is held still for
     `settle_frames`. Proof: `Editor/Capture/VfxCaptureSession.cs`, CAPTURE.md "Determinism".
-40. `duration_seconds` and `bounds` may be null (an effect that did not end by `max_seconds`, or
+42. `duration_seconds` and `bounds` may be null (an effect that did not end by `max_seconds`, or
     never had a particle). Proof: `Schemas~/vfx-capture.schema.json`.
 
 ### CI
 
-41. The game-ci jobs open a copy of `Sandbox~` at `sandbox-home/Sandbox` next to the checkout at
+43. The game-ci jobs open a copy of `Sandbox~` at `sandbox-home/Sandbox` next to the checkout at
     `sandbox-home/package`, not `Sandbox~` itself (Unity 6000.6 and `file:../../package`). Proof:
     `.github/workflows/ci.yml`, `.github/scripts/ci_sandbox.py`, CI.md.

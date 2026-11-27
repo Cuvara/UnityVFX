@@ -65,6 +65,9 @@ namespace Cuvara.VFX.Editor.Tests
         [UnityTest]
         public IEnumerator SameSeedTwice_GivesTheSamePeak_NoMinusOne_AndAllFiles()
         {
+            // The capture simulates on the GPU and reads the render target back: ignored, with the
+            // reason, on a runner without a graphics device or compute shaders (Documentation~/CI.md).
+            GraphicsRequirement.IgnoreUnlessGpuSimulationRuns();
             yield return new EnterPlayMode();
 
             // Everything below runs after the domain reload of entering play mode.

@@ -38,9 +38,18 @@ namespace Cuvara.VFX.Editor.Bridge
             internal static EditException Unknown(string what, string wanted, IEnumerable<string> valid)
             {
                 var ordered = NearestFirst(wanted, valid);
-                var list = ordered.Count == 0 ? "(none)" : string.Join(", ", ordered);
-                return new EditException($"unknown {what} '{wanted}'; valid {what}s (nearest first): {list}", ordered);
+                return new EditException(UnknownNameMessage(what, wanted, ordered), ordered);
             }
+        }
+
+        /// <summary>
+        /// The message for a name that is not accepted: <c>unknown &lt;what&gt; '&lt;wanted&gt;'; valid
+        /// names (nearest first): a, b, c</c>. <paramref name="ordered"/> is already in that order.
+        /// </summary>
+        public static string UnknownNameMessage(string what, string wanted, IReadOnlyCollection<string> ordered)
+        {
+            var list = ordered == null || ordered.Count == 0 ? "(none)" : string.Join(", ", ordered);
+            return $"unknown {what} '{wanted}'; valid names (nearest first): {list}";
         }
 
         /// <summary>
@@ -79,6 +88,97 @@ namespace Cuvara.VFX.Editor.Bridge
                 (previous, current) = (current, previous);
             }
             return previous[b.Length];
+        }
+
+        // ------------------------------------------------------------------ graph and resource versions
+
+        /// <summary>
+        /// The log line VFX Graph writes when <c>VFXGraph.SanitizeGraph</c> changed a graph that was not
+        /// dirty: the graph was older than the installed package and has been upgraded in memory.
+        /// </summary>
+        public const string UpgradedLogText = "The source graph was out of date and has been upgraded before compilation";
+
+        /// <summary>The graph version of the installed VFX Graph (<c>VFXGraph.CurrentVersion</c>).</summary>
+        public static int CurrentGraphVersion => VFXGraph.CurrentVersion;
+
+        /// <summary>
+        /// The resource version of the installed VFX Graph (<c>VisualEffectResource.CurrentVersion</c>),
+        /// read the way <c>VFXGraph.SanitizeGraph</c> reads it (by reflection; 0 when it is missing).
+        /// </summary>
+        public static int CurrentResourceVersion
+        {
+            get
+            {
+                var field = typeof(VisualEffectResource).GetField("CurrentVersion", BindingFlags.Static | BindingFlags.Public);
+                return field != null ? Convert.ToInt32(field.GetValue(null), CultureInfo.InvariantCulture) : 0;
+            }
+        }
+
+        /// <summary>
+        /// The versions stored in the graph of an asset: <c>graph_version</c> and
+        /// <c>resource_version</c>, with the installed package's <c>current_graph_version</c> and
+        /// <c>current_resource_version</c>.
+        /// </summary>
+        public static Map GraphVersions(string assetPath)
+        {
+            RequireSupportedVersion();
+            var graph = VisualEffectResource.GetResourceAtPath(assetPath)?.GetGraph();
+            if (graph == null)
+                throw new ArgumentException($"no VFX Graph at '{assetPath}'");
+            return new Map
+            {
+                { "graph_version", graph.version },
+                { "resource_version", ResourceVersion(graph) },
+                { "current_graph_version", CurrentGraphVersion },
+                { "current_resource_version", CurrentResourceVersion },
+            };
+        }
+
+        /// <summary>
+        /// Runs <c>VFXGraph.PrepareGraph</c> on the in-memory graph of an asset, the call a compile and
+        /// the graph window make first (it sanitises and upgrades an out-of-date graph). Nothing is saved.
+        /// </summary>
+        public static void PrepareGraph(string assetPath)
+        {
+            RequireSupportedVersion();
+            var graph = VisualEffectResource.GetResourceAtPath(assetPath)?.GetGraph();
+            if (graph == null)
+                throw new ArgumentException($"no VFX Graph at '{assetPath}'");
+            graph.PrepareGraph();
+        }
+
+        /// <summary>The <c>m_ResourceVersion</c> stored in a graph (private in VFX Graph, read as a serialised property).</summary>
+        static int ResourceVersion(VFXGraph graph)
+        {
+            using (var serialized = new SerializedObject(graph))
+            {
+                var property = serialized.FindProperty("m_ResourceVersion");
+                if (property == null)
+                    throw new InvalidOperationException("VFXGraph has no serialised field m_ResourceVersion; verify the bridge against the installed VFX Graph source (VFXGraph.SanitizeGraph).");
+                return property.intValue;
+            }
+        }
+
+        static bool IsOutOfDate(VFXGraph graph) =>
+            graph.version < CurrentGraphVersion || ResourceVersion(graph) < CurrentResourceVersion;
+
+        /// <summary>
+        /// Brings a graph to the installed graph and resource versions with VFX Graph's own
+        /// <c>VFXGraph.SanitizeGraph</c>, the upgrade a compile would run, and returns the resource version
+        /// the graph had before (null when it was current). Upgraded later, at the first compile, an
+        /// out-of-date graph would convert every gradient colour key written meanwhile with
+        /// <c>Color.linear</c> (resource version below 1), so this runs before the first edit.
+        /// </summary>
+        static int? BringToCurrentVersions(VFXGraph graph, string assetPath)
+        {
+            if (!IsOutOfDate(graph))
+                return null;
+            var before = ResourceVersion(graph);
+            graph.SanitizeGraph();
+            if (IsOutOfDate(graph))
+                throw new EditException($"VFX Graph did not bring '{assetPath}' to graph version {CurrentGraphVersion} and resource version {CurrentResourceVersion} " +
+                                        $"(it has {graph.version} and {ResourceVersion(graph)})");
+            return before;
         }
 
         /// <summary>Drops the cached resource of an asset so the next read loads it from disk.</summary>
@@ -614,6 +714,14 @@ namespace Cuvara.VFX.Editor.Bridge
             /// <summary>The asset this edit writes.</summary>
             public string AssetPath { get; }
 
+            /// <summary>
+            /// The resource version an opened graph had when <see cref="Open"/> upgraded it to the
+            /// installed versions before any edit (below 1, VFX Graph converted its gradient colour keys
+            /// with <c>Color.linear</c>); null when the graph was current. A created graph is current from
+            /// the start.
+            /// </summary>
+            public int? UpgradedFromResourceVersion { get; private set; }
+
             /// <summary>The ids known to this edit, ordered.</summary>
             public IReadOnlyList<string> Ids => m_Nodes.Keys.OrderBy(k => k, StringComparer.Ordinal).ToList();
 
@@ -637,6 +745,7 @@ namespace Cuvara.VFX.Editor.Bridge
                 if (resource == null)
                     throw new EditException($"VFX Graph did not create a resource at '{assetPath}'");
                 var graph = resource.GetGraph() ?? resource.CreateGraph();
+                BringToCurrentVersions(graph, assetPath);
                 return new GraphEdit(assetPath, resource, graph);
             }
 
@@ -672,6 +781,7 @@ namespace Cuvara.VFX.Editor.Bridge
                 if (resource == null || !resource.isSubgraph)
                     throw new EditException($"VFX Graph did not create a subgraph resource at '{assetPath}'");
                 var graph = resource.GetGraph() ?? resource.CreateGraph();
+                BringToCurrentVersions(graph, assetPath);
                 var edit = new GraphEdit(assetPath, resource, graph);
 
                 if (extension == ".vfxblock")
@@ -702,6 +812,7 @@ namespace Cuvara.VFX.Editor.Bridge
                 if (graph == null)
                     throw new EditException($"the resource at '{assetPath}' has no graph");
                 var edit = new GraphEdit(assetPath, resource, graph);
+                edit.UpgradedFromResourceVersion = BringToCurrentVersions(graph, assetPath);
                 foreach (var pair in AssignIds(graph, out _, out _, out _, out _))
                     edit.m_Nodes[pair.Value] = pair.Key;
                 return edit;
@@ -1162,8 +1273,9 @@ namespace Cuvara.VFX.Editor.Bridge
 
         /// <summary>
         /// Compiles a saved graph asset and reports what went wrong. Returns a map with <c>compiled</c>
-        /// (bool), <c>errors</c> and <c>warnings</c> (strings), and <c>systems</c> (id, name, data type,
-        /// capacity per system, as <c>describe</c> lists them).
+        /// (bool), <c>upgraded</c> (bool: VFX Graph logged that it upgraded an out-of-date graph, and a
+        /// warning names it), <c>errors</c> and <c>warnings</c> (strings), and <c>systems</c> (id, name,
+        /// data type, capacity per system, as <c>describe</c> lists them).
         /// </summary>
         /// <remarks>
         /// Three sources: the in-memory compile of the graph (<c>VFXGraph.Compile</c>, the same call the
@@ -1178,10 +1290,13 @@ namespace Cuvara.VFX.Editor.Bridge
             var warnings = new List<string>();
             var logged = new List<string>();
 
+            bool upgraded = false;
             void OnLog(string condition, string stackTrace, LogType type)
             {
                 if (type == LogType.Error || type == LogType.Exception || type == LogType.Assert)
                     logged.Add(condition);
+                else if (condition != null && condition.Contains(UpgradedLogText))
+                    upgraded = true;
             }
 
             bool compiled = false;
@@ -1215,11 +1330,15 @@ namespace Cuvara.VFX.Editor.Bridge
 
             foreach (var line in logged.Distinct())
                 errors.Add("log: " + FirstLines(line, 6));
+            if (upgraded)
+                warnings.Add($"VFX Graph upgraded '{assetPath}' before compilation (\"{UpgradedLogText}\"): the graph was saved at an older " +
+                             "graph or resource version; below resource version 1 every gradient colour key is converted with Color.linear");
 
             var systems = errors.Count == 0 ? Systems(assetPath) : new List<object>();
             return new Map
             {
                 { "compiled", compiled && errors.Count == 0 },
+                { "upgraded", upgraded },
                 { "errors", errors.Select(e => (object)e).ToList() },
                 { "warnings", warnings.Select(w => (object)w).ToList() },
                 { "systems", systems },

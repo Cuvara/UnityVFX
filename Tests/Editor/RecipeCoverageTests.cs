@@ -519,6 +519,23 @@ namespace Cuvara.VFX.Editor.Tests
         }
 
         [Test]
+        public void Bridge_NewSubgraphs_AreSavedAtTheCurrentGraphAndResourceVersions()
+        {
+            var operatorPath = Folder + "/Twice.vfxoperator";
+            var blockPath = Folder + "/Grow.vfxblock";
+            CreateOperatorSubgraph(operatorPath);
+            CreateBlockSubgraph(blockPath);
+            foreach (var path in new[] { operatorPath, blockPath })
+            {
+                VfxGraphBridge.ForgetResource(path);
+                var versions = VfxGraphBridge.GraphVersions(path);
+                Assert.That(versions.Get("resource_version"), Is.EqualTo(VfxGraphBridge.CurrentResourceVersion), path + " resource version");
+                Assert.That(versions.Get("graph_version"), Is.EqualTo(VfxGraphBridge.CurrentGraphVersion), path + " graph version");
+                Assert.That(File.ReadAllText(Path.GetFullPath(path)), Does.Contain("m_ResourceVersion: " + VfxGraphBridge.CurrentResourceVersion), path);
+            }
+        }
+
+        [Test]
         public void Bridge_OutputParameterOutsideASubgraph_AndAWrongSubgraphExtension_Fail()
         {
             var edit = VfxGraphBridge.GraphEdit.Create(Folder + "/Plain.vfx");

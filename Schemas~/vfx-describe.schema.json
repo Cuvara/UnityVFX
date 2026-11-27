@@ -4,7 +4,7 @@
   "title": "com.cuvara.vfx describe result",
   "description": "Result of the describe verb (VfxCli.Run(\"describe\", {\"asset\": ...})) with ok true: the envelope plus the graph. Ids are stable for an unchanged asset: contexts c<n>, their blocks c<n>.b<m>, operators o<n>, parameters p<n>, other graph models x<n>, systems s<n>, all in the serialised order of the graph's children. A slot is addressed as <node id>.<slot path>; the path joins slot names with dots, and a slot without a name is written #<index>.",
   "type": "object",
-  "required": ["ok", "verb", "errors", "warnings", "schema", "asset", "asset_kind", "vfx_graph", "graph_version",
+  "required": ["ok", "verb", "errors", "warnings", "schema", "asset", "asset_kind", "vfx_graph", "graph_version", "resource_version",
                "contexts", "operators", "parameters", "other_models", "links", "flow_links", "systems", "sticky_notes", "groups"],
   "properties": {
     "ok": {"const": true},
@@ -16,6 +16,7 @@
     "asset_kind": {"type": "string", "description": "vfx for a VisualEffectAsset, else the subgraph type name"},
     "vfx_graph": {"type": ["string", "null"], "description": "installed com.unity.visualeffectgraph version"},
     "graph_version": {"type": "integer"},
+    "resource_version": {"type": "integer", "description": "m_ResourceVersion of the graph; below VisualEffectResource.CurrentVersion VFX Graph upgrades the graph at the next compile (describe then warns)"},
     "contexts": {"type": "array", "items": {"$ref": "#/$defs/context"}},
     "operators": {"type": "array", "items": {"$ref": "#/$defs/operator"}},
     "parameters": {"type": "array", "items": {"$ref": "#/$defs/parameter"}},

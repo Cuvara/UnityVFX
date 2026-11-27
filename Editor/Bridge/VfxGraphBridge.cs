@@ -428,7 +428,12 @@ namespace Cuvara.VFX.Editor.Bridge
                 { "asset_kind", resource.asset != null ? "vfx" : resource.subgraph != null ? resource.subgraph.GetType().Name : "unknown" },
                 { "vfx_graph", InstalledVersion },
                 { "graph_version", graph.version },
+                { "resource_version", ResourceVersion(graph) },
             };
+            if (IsOutOfDate(graph))
+                warnings.Add($"the graph is at graph version {graph.version} and resource version {ResourceVersion(graph)}; VFX Graph {InstalledVersion} " +
+                             $"is at {CurrentGraphVersion} and {CurrentResourceVersion} and upgrades it in memory at the next compile, so the compiled " +
+                             "values can differ from the values described here (below resource version 1 every gradient colour key is converted with Color.linear)");
 
             var contextList = new List<object>();
             foreach (var context in contexts)

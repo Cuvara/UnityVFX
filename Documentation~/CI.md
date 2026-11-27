@@ -61,10 +61,29 @@ The Unity jobs then:
 - The Unity jobs have not run yet: the repository has no remote and no `UNITY_LICENSE` secret. The
   layout script was checked locally on a copy of the tracked files (exit 0; a second run, a home
   without a package and a home inside the repository each exit 1).
-- A hosted runner has no GPU. Tests that need a real render or a GPU readback (`CaptureTests`,
+- A hosted runner can have no GPU. Tests that need a real render or a GPU readback (`CaptureTests`,
   anything that reads `aliveParticleCount`) cannot give a meaningful result there. They are run
   locally against the Sandbox with the Unity Test Runner through Unity-MCP (AUTHORING.md, "Open,
-  watch, check, drive, close"); the licence-free gate is `validate`.
+  watch, check, drive, close"); the licence-free gate is `validate`. See "GPU tests" below.
+
+### GPU tests
+
+Rule: a test that simulates an effect on the GPU or reads a render target back calls
+`GraphicsRequirement.IgnoreUnlessGpuSimulationRuns()` (`Tests/Editor/GraphicsRequirement.cs`)
+before it does anything else, and before it enters play mode. When `SystemInfo.graphicsDeviceType`
+is `Null` (no graphics device, for example `-nographics`) or `SystemInfo.supportsComputeShaders` is
+false, the test ends as **Ignored**, and the reason names the missing device or feature. It is never
+a silent pass. It runs and must pass where a GPU is present, as in the local Sandbox.
+
+- Guarded today: `CaptureTests.SameSeedTwice_GivesTheSamePeak_NoMinusOne_AndAllFiles`. The other
+  `CaptureTests` check arguments in edit mode and need no GPU.
+- Not guarded: the build, describe and inspect tests (the VFX Graph compile and the shader import
+  run without a GPU), and the PlayMode tests (their `VisualEffect` components have no asset, so
+  nothing is simulated).
+- In a game-ci run, read the skipped count that `assert_test_results.py` prints. Each skipped test
+  is an Ignored GPU test, and its NUnit XML holds the reason. A skipped count above the number of
+  guarded tests is a problem to look at.
+- Add the guard to every new test that needs a capture, a readback or `aliveParticleCount`.
 - The Sandbox holds the Unity-MCP plugin. `Sandbox~/UserSettings` is gitignored, so in CI the
   plugin starts without the local configuration that `setup-sandbox.py` writes (AUTHORING.md,
   Pitfalls, "The Unity-MCP plugin starts in Cloud mode"). Whether it logs an error that fails a

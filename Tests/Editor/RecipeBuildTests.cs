@@ -230,5 +230,73 @@ namespace Cuvara.VFX.Editor.Tests
             StringAssert.Contains("cuvara.vfx-recipe/1", TestJson.Strings(result, "errors")[0]);
             Assert.That(File.Exists(AssetFile), Is.False);
         }
+
+        // ------------------------------------------------------------------ graph and resource versions
+
+        [Test]
+        public void Build_SavesTheCurrentGraphAndResourceVersions()
+        {
+            var built = Build();
+            Assert.That(TestJson.Strings(built, "warnings"), Has.None.Contains(Bridge.VfxGraphBridge.UpgradedLogText));
+
+            var versions = Bridge.VfxGraphBridge.GraphVersions(Asset);
+            var currentResource = Bridge.VfxGraphBridge.CurrentResourceVersion;
+            Assert.That(currentResource, Is.GreaterThanOrEqualTo(1), "VisualEffectResource.CurrentVersion of VFX Graph 17.6");
+            Assert.That(versions.Get("current_resource_version"), Is.EqualTo(currentResource));
+            Assert.That(versions.Get("resource_version"), Is.EqualTo(currentResource), "m_ResourceVersion of the built graph");
+            Assert.That(versions.Get("graph_version"), Is.EqualTo(Bridge.VfxGraphBridge.CurrentGraphVersion), "m_GraphVersion of the built graph");
+
+            // The saved file, not only the graph in memory.
+            Assert.That(File.ReadAllText(AssetFile), Does.Contain("m_ResourceVersion: " + currentResource));
+            var described = TestJson.Ok("describe", DescribeArgs);
+            Assert.That(described.Get("resource_version"), Is.EqualTo((long)currentResource));
+            Assert.That(TestJson.Strings(described, "warnings"), Is.Empty);
+        }
+
+        [Test]
+        public void Build_DescribeIsTheSameBeforeAndAfterPrepareGraph_AndAfterAReimport_WithTheAuthoredGradient()
+        {
+            Build();
+            var before = VfxCli.Run("describe", DescribeArgs);
+            AssertAuthoredGradient(before);
+
+            // The first call of a compile and of the graph window: an out-of-date graph is upgraded here.
+            Bridge.VfxGraphBridge.PrepareGraph(Asset);
+            var prepared = VfxCli.Run("describe", DescribeArgs);
+            AssertAuthoredGradient(prepared);
+            Assert.That(prepared, Is.EqualTo(before), "describe after PrepareGraph");
+
+            AssetDatabase.ImportAsset(Asset, ImportAssetOptions.ForceUpdate | ImportAssetOptions.ForceSynchronousImport);
+            Bridge.VfxGraphBridge.ForgetResource(Asset);
+            var reimported = VfxCli.Run("describe", DescribeArgs);
+            Assert.That(reimported, Is.EqualTo(before), "describe after a reimport");
+        }
+
+        /// <summary>
+        /// The colour keys of the colour-over-life gradient that describe prints are the recipe's:
+        /// stored as written, not converted with <c>Color.linear</c>.
+        /// </summary>
+        static void AssertAuthoredGradient(string describeJson)
+        {
+            var graph = (JsonObject)Json.Parse(describeJson);
+            Assert.That(graph.Get("ok"), Is.EqualTo(true), describeJson);
+            var output = TestJson.Objects(graph, "contexts")[3];
+            var fromCurve = TestJson.Objects(output, "blocks").Single(b => (string)b.Get("type") == "AttributeFromCurve");
+            var color = TestJson.Objects(fromCurve, "inputs").Single(i => (string)i.Get("name") == "Color");
+            var described = ((List<object>)((JsonObject)color.Get("value")).Get("color_keys")).Cast<JsonObject>().ToList();
+
+            var recipeSlots = (JsonObject)Op(FixtureDocument(), "color_over_life").Get("slots");
+            var authored = ((List<object>)((JsonObject)recipeSlots.Get("Color")).Get("color_keys")).Cast<JsonObject>().ToList();
+            Assert.That(described, Has.Count.EqualTo(authored.Count));
+            for (int i = 0; i < authored.Count; i++)
+            {
+                var want = ((List<object>)authored[i].Get("color")).Select(Number).ToList();
+                var got = ((List<object>)described[i].Get("color")).Select(Number).ToList();
+                for (int channel = 0; channel < want.Count; channel++)
+                    Assert.That(got[channel], Is.EqualTo(want[channel]).Within(1e-4), $"color_keys[{i}].color[{channel}]");
+            }
+        }
+
+        static double Number(object value) => Convert.ToDouble(value, System.Globalization.CultureInfo.InvariantCulture);
     }
 }

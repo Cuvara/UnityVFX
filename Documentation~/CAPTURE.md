@@ -57,8 +57,8 @@ All presets use ACES tonemapping. The stage: a grey ground (linear albedo 0.30),
 (0.36) 8 m behind the effect as seen from the camera, the key light with soft shadows, a global
 Volume with priority 1000, and a camera with HDR, post-processing on, no anti-aliasing, rendering
 into an `ARGBHalf` linear render texture. The effect sits at the origin. Measured mean luminance of
-the BurstQuads frame at 0.3 s (`gameplay`): day 0.186, dusk 0.029, night 0.015; `close` dusk 0.085,
-`side` dusk 0.069.
+the BurstQuads frame at 0.3 s (`gameplay`): day 0.188, dusk 0.031, night 0.017; `close` dusk 0.092,
+`side` dusk 0.072 (seed 1234, measured on 2026-11-27 after the gradient fix, AUTHORING.md Pitfalls).
 
 ## How it runs
 
@@ -129,6 +129,9 @@ not end.
   the 8 default times, `duration_seconds` 0.9, and the same SHA-256 for every frame and the
   contact sheet. Seed 98765: peak 24 (the burst count is fixed), counts 24, 24, 24, 24, 24, 14, 2,
   0, other frame hashes. The EditMode test `CaptureTests` checks the same with two captures.
+  After the fixture was rebuilt at the current resource version (AUTHORING.md, Pitfalls, "Gradient
+  colours of a built graph changed at the first compile"), seed 1234 gave the same counts and
+  `alive.peak` 24 again; the frames are brighter and more orange, so their hashes changed.
 - Equal PNG hashes are observed, not promised: they depend on the GPU and driver. `alive` counts
   are what two captures must agree on.
 

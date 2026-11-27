@@ -33,18 +33,24 @@ open it at `Sandbox~` directly (see [AUTHORING.md](Documentation~/AUTHORING.md),
 
 ## Quick start
 
-From the repository root, build the fixture effect, capture it, and close the editor:
+From the repository root, build a scratch copy of the fixture effect, capture it, and close the
+editor. Every file this writes is gitignored: the copy under `Sandbox~/Assets/Scratch`, the results
+under `vfx-out/` and the capture under `Sandbox~/Captures`. Do not build the committed fixture in
+place: each build gives the tracked `.vfx` new bytes.
 
 ```sh
 python Tools~/setup-sandbox.py --open
-python Tools~/vfxcli.py catalog --out catalog.json
-python Tools~/vfxcli.py build --json '{"recipe": "Tests/Fixtures/BurstQuads/BurstQuads.vfxrecipe.json"}'
-python Tools~/vfxcli.py capture --json '{"effect": "Tests/Fixtures/BurstQuads/BurstQuads.vfx", "seed": 1234}'
+mkdir -p Sandbox~/Assets/Scratch/BurstQuads
+cp Tests/Fixtures/BurstQuads/BurstQuads.vfxrecipe.json Sandbox~/Assets/Scratch/BurstQuads/
+python Tools~/vfxcli.py catalog --out vfx-out/catalog.json
+python Tools~/vfxcli.py build --json '{"recipe": "Sandbox~/Assets/Scratch/BurstQuads/BurstQuads.vfxrecipe.json"}' --out vfx-out/build.json
+python Tools~/vfxcli.py capture --json '{"effect": "Sandbox~/Assets/Scratch/BurstQuads/BurstQuads.vfx", "seed": 1234}' --out vfx-out/capture.json
 python Tools~/setup-sandbox.py --close
 ```
 
-The capture lands in `Sandbox~/Captures/BurstQuads/seed-1234-gameplay-dusk/` (gitignored):
-`contact-sheet.png`, one PNG per sample and `stats.json`.
+The capture lands in `Sandbox~/Captures/BurstQuads/seed-1234-gameplay-dusk/`:
+`contact-sheet.png`, one PNG per sample and `stats.json`. Delete `Sandbox~/Assets/Scratch` (with
+`AssetDatabase.DeleteAsset("Assets/Scratch")` while the editor is open) and `vfx-out/` when done.
 
 ## Agent interface
 

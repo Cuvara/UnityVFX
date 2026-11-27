@@ -167,6 +167,10 @@ namespace Cuvara.VFX.Editor
                     }
                     AssetDatabase.ImportAsset(temp, ImportAssetOptions.ForceSynchronousImport);
                     graph = VfxGraphBridge.GraphEdit.Open(temp);
+                    if (graph.UpgradedFromResourceVersion is int upgradedFrom)
+                        result.Warning($"'{edit}' was saved by an older VFX Graph (resource version {upgradedFrom}); it was upgraded to resource version " +
+                                       $"{VfxGraphBridge.CurrentResourceVersion} and graph version {VfxGraphBridge.CurrentGraphVersion} before the first op" +
+                                       (upgradedFrom < 1 ? ", and VFX Graph converted its existing gradient colour keys with Color.linear" : string.Empty));
                 }
 
                 if (!ApplyOps(graph, ops, result))
@@ -176,6 +180,9 @@ namespace Cuvara.VFX.Editor
                 graph.Save();
                 var report = VfxGraphBridge.CompileReport(temp);
                 var compileErrors = ((List<object>)report.Get("errors")).Cast<string>().ToList();
+                if (edit == null && report.Get("upgraded") is bool upgraded && upgraded)
+                    compileErrors.Add("VFX Graph upgraded the new graph at its first compile, so the stored values are not the recipe's " +
+                                      "(a new graph must be at the current graph and resource versions before the first op)");
                 foreach (var warning in ((List<object>)report.Get("warnings")).Cast<string>())
                     result.Warning("compile: " + warning);
                 result.Set("compile_errors", compileErrors.Cast<object>().ToList());
@@ -462,7 +469,7 @@ namespace Cuvara.VFX.Editor
         static string UnknownMessage(string what, string wanted, IEnumerable<string> valid)
         {
             var ordered = VfxGraphBridge.NearestFirst(wanted, valid);
-            return $"unknown {what} '{wanted}'; valid {what}s (nearest first): {string.Join(", ", ordered)}";
+            return VfxGraphBridge.UnknownNameMessage(what, wanted, ordered);
         }
 
         /// <summary>Lower-case hex SHA-256 of bytes.</summary>
