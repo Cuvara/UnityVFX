@@ -28,8 +28,14 @@ namespace Cuvara.VFX.Editor.Capture
     /// behind the origin as seen from the camera (turned to the camera's heading). Every camera preset
     /// sees the ground up to the foot of the wall and the wall above it, and no preset sees past an
     /// edge of either (Documentation~/CAPTURE.md, "Stage").</para>
-    /// <para>Cameras, lights and Volumes of the other loaded scenes are disabled while the stage exists
-    /// and enabled again by <see cref="Dispose"/>, which also destroys every object the stage made.</para>
+    /// <para>The other loaded scenes take no part in a capture: every active root object of every other
+    /// loaded scene is deactivated while the stage exists, so none of their renderers, lights, cameras,
+    /// Volumes, effects or scripts runs or renders, and <see cref="Dispose"/> activates exactly those
+    /// roots again (roots that were inactive stay inactive; the state of every child and component is
+    /// kept). <see cref="Dispose"/> also destroys every object the stage made. Objects in the
+    /// <c>DontDestroyOnLoad</c> scene are not touched: it is not a loaded scene of
+    /// <see cref="SceneManager"/> and holds editor tooling such as the Unity-MCP connection
+    /// (Documentation~/CAPTURE.md, "Stage").</para>
     /// </remarks>
     public sealed class VfxCaptureStage : IDisposable
     {
@@ -58,7 +64,7 @@ namespace Cuvara.VFX.Editor.Capture
 
         static int s_Count;
 
-        readonly List<Behaviour> m_Disabled = new List<Behaviour>();
+        readonly List<GameObject> m_Deactivated = new List<GameObject>();
         readonly List<Object> m_Owned = new List<Object>();
         readonly Scene m_PreviousActive;
 
@@ -88,7 +94,7 @@ namespace Cuvara.VFX.Editor.Capture
 
             m_PreviousActive = SceneManager.GetActiveScene();
             Scene = SceneManager.CreateScene("CuvaraVfxCapture" + (++s_Count));
-            DisableOtherScenes();
+            DeactivateOtherScenes();
             SceneManager.SetActiveScene(Scene);
 
             var origin = Vector3.zero;
@@ -177,7 +183,10 @@ namespace Cuvara.VFX.Editor.Capture
             Own(primitive);
         }
 
-        void DisableOtherScenes()
+        // Deactivating the roots, not single components, keeps every renderer, light, camera, Volume,
+        // VisualEffect, ParticleSystem and script of the other scenes out of the capture, and leaves
+        // each child's own active flag and each component's enabled flag as it was.
+        void DeactivateOtherScenes()
         {
             for (int i = 0; i < SceneManager.sceneCount; i++)
             {
@@ -186,19 +195,18 @@ namespace Cuvara.VFX.Editor.Capture
                     continue;
                 foreach (var root in scene.GetRootGameObjects())
                 {
-                    foreach (var behaviour in root.GetComponentsInChildren<Behaviour>(false))
-                    {
-                        if (behaviour.enabled && (behaviour is UnityEngine.Camera || behaviour is Light || behaviour is Volume))
-                        {
-                            behaviour.enabled = false;
-                            m_Disabled.Add(behaviour);
-                        }
-                    }
+                    if (!root.activeSelf)
+                        continue;
+                    root.SetActive(false);
+                    m_Deactivated.Add(root);
                 }
             }
         }
 
-        /// <summary>Destroys the stage's objects, unloads its scene and enables what it disabled.</summary>
+        /// <summary>
+        /// Destroys the stage's objects, activates again the roots of other scenes it deactivated and
+        /// unloads its scene.
+        /// </summary>
         public void Dispose()
         {
             if (Camera != null)
@@ -209,12 +217,12 @@ namespace Cuvara.VFX.Editor.Capture
                     Object.Destroy(owned);
             }
             m_Owned.Clear();
-            foreach (var behaviour in m_Disabled)
+            foreach (var root in m_Deactivated)
             {
-                if (behaviour != null)
-                    behaviour.enabled = true;
+                if (root != null)
+                    root.SetActive(true);
             }
-            m_Disabled.Clear();
+            m_Deactivated.Clear();
             if (m_PreviousActive.IsValid() && m_PreviousActive.isLoaded)
                 SceneManager.SetActiveScene(m_PreviousActive);
             if (Scene.IsValid() && Scene.isLoaded && SceneManager.sceneCount > 1)

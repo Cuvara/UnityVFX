@@ -88,6 +88,17 @@ key lights the front of the backdrop in every camera preset (the night key was a
   origin)`. The camera renders with HDR, post-processing on and no anti-aliasing into an `ARGBHalf`
   linear render texture.
 - **Effect** at the origin (the camera's focus); characters, when requested, in a lane around it.
+- **Other scenes take no part:** every active root object of every other loaded scene (for example
+  `Showcase.unity` open in the editor, which play mode loads and runs) is deactivated while the stage
+  exists, so none of their renderers, lights, cameras, Volumes, effects or scripts runs or renders.
+  When the stage is removed exactly those roots are activated again; roots that were inactive stay
+  inactive, and the active flag of each child and the enabled flag of each component are kept.
+  Objects in the `DontDestroyOnLoad` scene are not touched (it holds editor tooling such as the
+  Unity-MCP connection); an effect that spawns objects there is not isolated from them. Measured
+  on 2026-11-27: BurstQuads seed 1234 (`gameplay`, `dusk`) captured with `Showcase.unity` open and
+  from an empty scene gave the same counts `[24, 24, 24, 24, 24, 14, 3, 0]` and 8 of 8 equal frame
+  hashes and an equal contact-sheet hash (`CaptureTests.AnotherLoadedScene_DoesNotChangeTheCapture_AndIsRestoredAfterwards`
+  checks the same with a second scene that holds a 3 m cube at the origin).
 
 What each camera sees: `gameplay` (45 degrees down at 10 m) shows the ground with the foot of the
 wall in the top sixth of the frame; `close` (15 degrees at 4 m) shows the ground in the lower three
@@ -154,9 +165,9 @@ target in the unused slots).
    "result_file"}` at once. Entering play mode reloads the scripting domain in the Sandbox (Enter
    Play Mode Options off), so a synchronous call cannot span it.
 2. After the reload `VfxCaptureJob` (`[InitializeOnLoad]`) finds the job and starts a
-   `VfxCaptureSession`: a scene of its own with the stage, cameras, lights and Volumes of other
-   scenes disabled, `Application.runInBackground` on (an unfocused editor does not advance play mode
-   otherwise), `Time.captureDeltaTime` set, the effect instantiated, every `VisualEffect` with
+   `VfxCaptureSession`: a scene of its own with the stage, every active root object of the other
+   loaded scenes deactivated (see Stage), `Application.runInBackground` on (an unfocused editor does
+   not advance play mode otherwise), `Time.captureDeltaTime` set, the effect instantiated, every `VisualEffect` with
    `resetSeedOnPlay` off, `startSeed` set, `playRate` 0 and `Reinit()`.
 3. A player-loop step at the start of every frame drives the capture (see Determinism). When the
    last sample is taken and the effect has ended (or nothing ever spawned, or `max_seconds` passed),
@@ -259,11 +270,6 @@ not end.
   need (a mesh, a skinned mesh, a custom binder) are not set, and the Showcase covers those.
 - The `side` camera looks down the character lane and sees the nearest target from behind; the lane
   reads in `gameplay` (all of it) and `close` (its middle).
-- The stage disables the cameras, lights and Volumes of every other loaded scene
-  (`VfxCaptureStage.DisableOtherScenes`), but not their renderers or components. With
-  `Samples~/Showcase/Showcase.unity` open in the editor, the play-mode capture also runs the sample's
-  `ShowcaseCharacterSpawn` components and shows the Showcase's characters around the effect (seen
-  2026-11-27 in a BurstQuads capture without `character`). Open an empty scene before a capture.
 - The capture needs the editor in edit mode with no compile error and no other capture pending.
   A script change during a capture reloads the domain and fails the job with an error result.
 

@@ -1284,13 +1284,16 @@ Each entry is a verified failure: symptom, cause, fix, file.
 
 - **Symptom:** the contact sheet of `BurstQuads` (no `character` input) showed four test characters in
   a row around the burst, and the Showcase's walls in the frame.
-- **Cause:** `Showcase.unity` was open in the editor. The capture stage disables the cameras, lights
-  and Volumes of other loaded scenes, not their renderers, and play mode ran the scene's
-  `ShowcaseCharacterSpawn` components (`Editor/Capture/VfxCaptureStage.cs`, `DisableOtherScenes`).
-- **Fix:** open an empty scene (`EditorSceneManager.NewScene(NewSceneSetup.EmptyScene)`) before a
-  capture; the sheets are then the same as before (mean luminance of the 0.29 s frame 0.1809, 0.0314,
-  0.0166 for `day`, `dusk`, `night`).
-- **File:** `Editor/Capture/VfxCaptureStage.cs` (not changed; a finding for the owner of that file).
+- **Cause:** `Showcase.unity` was open in the editor. The capture stage disabled only the cameras,
+  lights and Volumes of other loaded scenes, not their renderers, and play mode ran the scene's
+  `ShowcaseCharacterSpawn` components.
+- **Fix:** the stage now deactivates every active root object of the other loaded scenes while it
+  exists and activates exactly those again when it is removed (CAPTURE.md, "Stage"). With
+  `Showcase.unity` open, BurstQuads seed 1234 (`gameplay`, `dusk`) gave the same counts and 8 of 8
+  equal frame hashes as from an empty scene (2026-11-27); an open scene no longer needs to be closed
+  before a capture.
+- **File:** `Editor/Capture/VfxCaptureStage.cs` (`DeactivateOtherScenes`), test
+  `Tests/Editor/CaptureTests.cs` (`AnotherLoadedScene_DoesNotChangeTheCapture_AndIsRestoredAfterwards`).
 
 ### `tests-run` refused to start with an unsaved scene
 

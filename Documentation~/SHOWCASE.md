@@ -252,10 +252,6 @@ there too. The package's own PlayMode tests of the runtime pieces are `VfxStatio
   stage, so the same holds there.
 - **Capture frame hashes with characters take one of two reproducible sets** (CAPTURE.md,
   "Determinism"); counts are always equal.
-- **Capture renders every open scene's meshes.** The capture stage disables the cameras, lights and
-  Volumes of other loaded scenes but not their renderers, so a capture taken while `Showcase.unity` is
-  open in the editor shows the Showcase's characters around the effect. Open an empty scene (or
-  another without meshes) before a capture. See CAPTURE.md, "Limits".
 - **Keys were not pressed by a person.** The evidence and the smoke tests call the overlay's public
   methods, which the keys and buttons call. Input with the legacy Input Manager only, or both
   backends, was not compiled (the Sandbox has the Input System only).

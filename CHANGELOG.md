@@ -273,6 +273,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A capture taken while another scene was loaded (for example `Showcase.unity` open in the editor)
+  showed that scene's meshes, characters and effects around the effect: the stage disabled only the
+  other scenes' cameras, lights and Volumes. It now deactivates every active root object of the other
+  loaded scenes while it exists and activates exactly those again afterwards, so the frames and
+  counts do not depend on the open scenes (`CaptureTests.AnotherLoadedScene_DoesNotChangeTheCapture_AndIsRestoredAfterwards`).
 - Every cell of a capture contact sheet showed a brown band at the top and a ground with no
   readable surface: the gameplay frame saw only a 1 m strip of an untextured backdrop 8 m away, lit
   orange by the dusk key more brightly than the ground. The stage now has the grid ground and a grid

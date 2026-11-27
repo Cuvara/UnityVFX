@@ -8,7 +8,9 @@ using Cuvara.VFX.Editor.Capture;
 using NUnit.Framework;
 using UnityEditor;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 using UnityEngine.TestTools;
+using Object = UnityEngine.Object;
 
 namespace Cuvara.VFX.Editor.Tests
 {
@@ -105,6 +107,127 @@ namespace Cuvara.VFX.Editor.Tests
             {
                 AssertFiles(stats, folder);
                 AssertFields(stats);
+            }
+        }
+
+        [UnityTest]
+        public IEnumerator AnotherLoadedScene_DoesNotChangeTheCapture_AndIsRestoredAfterwards()
+        {
+            GraphicsRequirement.IgnoreUnlessGpuSimulationRuns();
+            yield return new EnterPlayMode();
+
+            // Everything below runs after the domain reload of entering play mode.
+            var alone = Request(Args(1234, "isolation-alone"), out var parseAlone);
+            Assert.That(alone, Is.Not.Null, "parse: " + string.Join(" | ", parseAlone.Errors));
+            var sessionAlone = VfxCaptureSession.Start(alone);
+            var started = EditorApplication.timeSinceStartup;
+            while (!sessionAlone.IsDone && EditorApplication.timeSinceStartup - started < TimeoutSeconds)
+                yield return null;
+            Assert.That(sessionAlone.IsDone, Is.True, "capture without the other scene did not finish");
+            Assert.That(sessionAlone.Result.Ok, Is.True, "capture without the other scene: " + string.Join(" | ", sessionAlone.Result.Errors));
+            yield return null;
+
+            // A second loaded scene whose content would be in every frame of the gameplay camera: a
+            // 3 m cube on the effect's origin, a bright point light, an inactive root and an inactive
+            // child (both must stay inactive afterwards).
+            var other = SceneManager.CreateScene("CuvaraVfxCaptureTestsOther");
+            var cube = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            cube.name = "Blocker";
+            cube.transform.localScale = new Vector3(3f, 3f, 3f);
+            var renderer = cube.GetComponent<MeshRenderer>();
+            var inactiveChild = new GameObject("Inactive Child");
+            inactiveChild.transform.SetParent(cube.transform, false);
+            inactiveChild.SetActive(false);
+            var light = new GameObject("Other Light").AddComponent<Light>();
+            light.type = LightType.Point;
+            light.intensity = 50f;
+            light.range = 20f;
+            light.transform.position = new Vector3(0f, 2f, -2f);
+            var inactiveRoot = new GameObject("Inactive Root");
+            inactiveRoot.SetActive(false);
+            foreach (var root in new[] { cube, light.gameObject, inactiveRoot })
+                SceneManager.MoveGameObjectToScene(root, other);
+
+            try
+            {
+                var withOther = Request(Args(1234, "isolation-with-other-scene"), out var parseOther);
+                Assert.That(withOther, Is.Not.Null, "parse: " + string.Join(" | ", parseOther.Errors));
+                var sessionOther = VfxCaptureSession.Start(withOther);
+                Assert.That(cube.activeSelf, Is.False, "the other scene's roots are inactive while the capture runs");
+                Assert.That(light.gameObject.activeSelf, Is.False, "the other scene's roots are inactive while the capture runs");
+                started = EditorApplication.timeSinceStartup;
+                while (!sessionOther.IsDone && EditorApplication.timeSinceStartup - started < TimeoutSeconds)
+                    yield return null;
+                Assert.That(sessionOther.IsDone, Is.True, "capture with the other scene did not finish");
+                Assert.That(sessionOther.Result.Ok, Is.True, "capture with the other scene: " + string.Join(" | ", sessionOther.Result.Errors));
+
+                // Restored exactly: active roots active again, inactive objects still inactive, the
+                // components' enabled flags unchanged.
+                Assert.That(cube.activeSelf, Is.True, "the cube is active again");
+                Assert.That(light.gameObject.activeSelf, Is.True, "the light is active again");
+                Assert.That(inactiveRoot.activeSelf, Is.False, "an inactive root stays inactive");
+                Assert.That(inactiveChild.activeSelf, Is.False, "an inactive child stays inactive");
+                Assert.That(renderer.enabled, Is.True, "the renderer stays enabled");
+                Assert.That(light.enabled, Is.True, "the light stays enabled");
+
+                var a = ReadStats(alone.Out);
+                var b = ReadStats(withOther.Out);
+                Assert.That(Counts(b), Is.EqualTo(Counts(a)), "same counts at every sample with the other scene loaded");
+                Assert.That(((JsonObject)b.Get("alive")).Get("peak"), Is.EqualTo(((JsonObject)a.Get("alive")).Get("peak")), "same peak");
+                AssertSameFrames(a, alone.Out, b, withOther.Out);
+            }
+            finally
+            {
+                if (other.IsValid() && other.isLoaded)
+                    SceneManager.UnloadSceneAsync(other);
+            }
+        }
+
+        /// <summary>
+        /// The frames of two captures match: equal SHA-256 or, since frame hashes across runs are
+        /// observed but not guaranteed (Documentation~/CAPTURE.md, "Determinism"), fewer than 1 % of the
+        /// pixels differ by more than 8 of 255 in a channel. The 3 m cube of the other scene covers far
+        /// more of the gameplay frame than that.
+        /// </summary>
+        static void AssertSameFrames(JsonObject a, string folderA, JsonObject b, string folderB)
+        {
+            var framesA = ((List<object>)a.Get("frames")).Cast<JsonObject>().ToList();
+            var framesB = ((List<object>)b.Get("frames")).Cast<JsonObject>().ToList();
+            Assert.That(framesB.Select(f => f.Get("file")), Is.EqualTo(framesA.Select(f => f.Get("file"))), "same frame files");
+            for (int i = 0; i < framesA.Count; i++)
+            {
+                var file = (string)framesA[i].Get("file");
+                if (Equals(framesA[i].Get("sha256"), framesB[i].Get("sha256")))
+                    continue;
+                var pixelsA = LoadPixels(Path.Combine(folderA, file), out var widthA, out var heightA);
+                var pixelsB = LoadPixels(Path.Combine(folderB, file), out var widthB, out var heightB);
+                Assert.That(widthB, Is.EqualTo(widthA), file + ": same width");
+                Assert.That(heightB, Is.EqualTo(heightA), file + ": same height");
+                int differing = 0;
+                for (int p = 0; p < pixelsA.Length; p++)
+                {
+                    var x = pixelsA[p];
+                    var y = pixelsB[p];
+                    if (Math.Abs(x.r - y.r) > 8 || Math.Abs(x.g - y.g) > 8 || Math.Abs(x.b - y.b) > 8)
+                        differing++;
+                }
+                Assert.That(differing, Is.LessThan(pixelsA.Length / 100), file + ": pixels that differ by more than 8 of 255 (the hashes differ)");
+            }
+        }
+
+        static Color32[] LoadPixels(string path, out int width, out int height)
+        {
+            var texture = new Texture2D(2, 2);
+            try
+            {
+                Assert.That(texture.LoadImage(File.ReadAllBytes(path)), Is.True, path);
+                width = texture.width;
+                height = texture.height;
+                return texture.GetPixels32();
+            }
+            finally
+            {
+                Object.DestroyImmediate(texture);
             }
         }
 
