@@ -21,7 +21,8 @@ The order of work:
 
 [DESIGN.md](DESIGN.md) is the contract the package was built against; where the built verbs,
 formats, schemas or layout differ from it, the difference is listed in
-[Differences from DESIGN.md](#differences-from-designmd) at the end of this file. Verified failures
+[Differences from DESIGN.md](#differences-from-designmd) at the end of this file (49 numbered
+items). The Showcase scene is described in [SHOWCASE.md](SHOWCASE.md). Verified failures
 and their fixes are under [Pitfalls](#pitfalls).
 
 ## Sandbox
@@ -147,8 +148,11 @@ dependencies; the list with versions is `Sandbox~/Assets/Plugins/NuGet/.nuget-in
 are the plugin's own restore output, committed as the game client commits them, because a first open
 without the folder stops at about 1000 compile errors and stays there unless the editor is started
 the way `--restore-nuget` does (Pitfalls, "Missing NuGet DLLs stop the first open at a dialog").
-Their licence entries are in `THIRD-PARTY.md` at the repository root (the Rql DLLs and the Quaternius
-characters are marked there as owner decisions before a public release). This package does not ship
+Their licence entries are in `THIRD-PARTY.md` at the repository root: one row per DLL with its
+version, author, licence and source, the full licence texts, and what each install route (Git URL, npm
+or OpenUPM tarball, clone) downloads. The Rql DLLs (PolyForm Shield 1.0.0) and the Quaternius test
+characters of the Showcase (CC0 1.0 on their pack pages, a different site-wide page) are marked there as owner
+decisions before a public release. This package does not ship
 the DLLs: an npm or OpenUPM tarball leaves out `Sandbox~` (`package.json` `files`), and Unity imports
 no folder that ends in `~`. A Git URL install still downloads the whole repository, `Sandbox~` included.
 
@@ -1276,6 +1280,18 @@ Each entry is a verified failure: symptom, cause, fix, file.
   the saved file (`library: {fileID: 11400000, guid: ...}`) before playing.
 - **File:** `Samples~/Showcase/Showcase.unity` (`VFX Player`).
 
+### A capture with the Showcase open showed its characters around the effect
+
+- **Symptom:** the contact sheet of `BurstQuads` (no `character` input) showed four test characters in
+  a row around the burst, and the Showcase's walls in the frame.
+- **Cause:** `Showcase.unity` was open in the editor. The capture stage disables the cameras, lights
+  and Volumes of other loaded scenes, not their renderers, and play mode ran the scene's
+  `ShowcaseCharacterSpawn` components (`Editor/Capture/VfxCaptureStage.cs`, `DisableOtherScenes`).
+- **Fix:** open an empty scene (`EditorSceneManager.NewScene(NewSceneSetup.EmptyScene)`) before a
+  capture; the sheets are then the same as before (mean luminance of the 0.29 s frame 0.1809, 0.0314,
+  0.0166 for `day`, `dusk`, `night`).
+- **File:** `Editor/Capture/VfxCaptureStage.cs` (not changed; a finding for the owner of that file).
+
 ### `tests-run` refused to start with an unsaved scene
 
 - **Symptom:** `unity-mcp-cli run-tool tests-run` answered `Cannot run tests: 1 open scene(s) have
@@ -1335,7 +1351,9 @@ Each entry is a verified failure: symptom, cause, fix, file.
   errors stay in the console buffer after the scratch folder is deleted: restart the editor.
 - `ScreenCapture.CaptureScreenshot` from `script-execute` in play mode wrote a fully black 1920x1080
   PNG (27,260 bytes) for 3 of about 35 Game View screenshots of the Showcase (no overlay either); the
-  same call a few seconds later wrote the frame. Look at every screenshot before you use it.
+  same call a few seconds later wrote the frame. It happened once more (1 of 8, the first shot after
+  a lighting switch to `dusk`, evidence run of 2026-11-27, 27,260 bytes again; the retake was normal).
+  Look at every screenshot before you use it.
 - `Light.shadowResolution` warns `Light.shadowResolution is compatible only with the Built-In Render
   Pipeline.` when it is set in a URP project; URP takes the main light's shadow resolution from the
   pipeline asset. The Showcase leaves it at its default.
@@ -1356,7 +1374,7 @@ Each entry is a verified failure: symptom, cause, fix, file.
 ## Differences from DESIGN.md
 
 Every place where the built verbs, formats, schemas or layout differ from
-[DESIGN.md](DESIGN.md), checked against the code on 2026-11-13 and updated on 2026-11-27 (three times). These
+[DESIGN.md](DESIGN.md), checked against the code on 2026-11-13 and updated on 2026-11-27 (four times; 49 items). These
 differences are not written into DESIGN.md; the run lead decides whether the contract adopts
 them. Additions that keep every DESIGN field and behaviour are listed too, because rpg-factory
 scripts read these formats.
@@ -1368,14 +1386,15 @@ scripts read these formats.
    gradients and textures there; none exists yet. `Effects/` holds only `README.md` (the layout of
    one effect): no effect exists yet, and each folder holds a file because git tracks no empty
    folder and `check_metas.py` fails on a folder `.meta` without a Unity-visible file.
-   `Samples~/Showcase/` holds the scene, its scripts, library, materials and the test characters
-   (items 47 to 49); `Documentation~/SHOWCASE.md` is written by the rest of the Showcase task
-   (pkg-showcase). Proof: the repository tree (`git ls-files`).
+   `Samples~/Showcase/` holds the scene, its scripts, library, effect prefabs, materials, Volume
+   profile and the test characters (items 47 to 49); `Documentation~/SHOWCASE.md` documents it.
+   Proof: the repository tree (`git ls-files`).
 2. More folders than DESIGN lists: `Editor/` is split into `Cli/`, `Verbs/`, `Recipe/`, `Texture/`,
    `Inspect/`, `Capture/` (the bridge stays alone in `Editor/Bridge/`); `Runtime/Presets/` holds the
    capture and Showcase presets; `Runtime/Showcase/` holds the pieces the Showcase scene and the
-   capture stage share (`VfxStation`, `VfxLightingRig`, `VfxCameraRig`, `VfxMannequin`); `Tests/Fixtures/BurstQuads/` holds the fixture recipe and the
-   `.vfx` it builds. Proof: those folders.
+   capture stage share (`VfxStation`, `VfxLightingRig`, `VfxCameraRig`, `VfxMannequin`); `Tests/Fixtures/BurstQuads/` and `Tests/Fixtures/ChainTargets/` hold the
+   fixture recipes and the `.vfx` files they build; `Sandbox~/Assets/Tests/` holds the Showcase smoke
+   tests. Proof: those folders.
 3. `Schemas~/` holds a fourth schema, `vfx-inspect.schema.json` (`cuvara.vfx-inspect/1`), besides
    the recipe, capture and describe schemas. Proof: `Schemas~/vfx-inspect.schema.json`.
 4. `Sandbox~/Assets/Plugins/NuGet/` (the Unity-MCP plugin's 45 DLLs, 17.8 MiB) is committed and can be
@@ -1573,7 +1592,7 @@ scripts read these formats.
     (`Tests/Fixtures`, referenced by the prefabs in `Samples~/Showcase/Effects/`, listed in
     `ShowcaseLibrary.asset`); the pedestal has no effect. The overlay sets the effect of the selected
     station. Proof: `Samples~/Showcase/ShowcaseLibrary.asset`, `Samples~/Showcase/README.md`.
-49. The sample has its own assembly, `Cuvara.VFX.Samples.Showcase` (references only `Cuvara.VFX`),
-    and the stations' rows run diagonally (-30 degrees) so the fixed `side` preset does not look down
+49. The sample has its own assembly, `Cuvara.VFX.Samples.Showcase` (references only `Cuvara.VFX`;
+    types `ShowcaseOverlay` and `ShowcaseCharacterSpawn`), and the stations' rows run diagonally (-30 degrees) so the fixed `side` preset does not look down
     a row (Pitfalls). Proof: `Samples~/Showcase/Scripts/Cuvara.VFX.Samples.Showcase.asmdef`,
     `Samples~/Showcase/Showcase.unity`.

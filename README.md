@@ -84,15 +84,17 @@ the `.vfx` it builds. Never edit a `.vfx` as text.
 | `Editor/` | `Cuvara.VFX.Editor`: `Cli/` (`VfxCli`), `Verbs/`, `Recipe/` (recipe builder), `Texture/` (texture import), `Inspect/`, `Capture/` |
 | `Editor/Bridge/` | `Unity.Testing.VisualEffectGraph.Editor`: `VfxGraphBridge` only (the assembly name VFX Graph lets see its internals) |
 | `Tests/Editor`, `Tests/Runtime` | `Cuvara.VFX.Editor.Tests` (EditMode), `Cuvara.VFX.Tests` (PlayMode) |
-| `Tests/Fixtures/BurstQuads/` | the fixture recipe and the `.vfx` it builds |
+| `Tests/Fixtures/BurstQuads/`, `Tests/Fixtures/ChainTargets/` | the fixture recipes and the `.vfx` files they build: BurstQuads (24 additive quads) and ChainTargets (48 quads on the line from `SourcePosition` to `TargetPosition7`, for a `ChainLightningBinder`) |
+| `Samples~/Showcase/` | the Showcase sample (listed in `package.json` `samples`): a grey grid room with four effect stations, CC0 rigged test characters with `VfxSocket`s (or a placeholder mannequin), the lighting and camera presets and a play-mode overlay; assembly `Cuvara.VFX.Samples.Showcase`; see [SHOWCASE.md](Documentation~/SHOWCASE.md) |
 | `Schemas~/` | JSON Schemas (draft 2020-12): recipe, describe, inspect, capture stats |
 | `Tools~/` | `vfxcli.py`, `setup-sandbox.py`, `sandbox_paths.py` |
+| `THIRD-PARTY.md` | licence notices of the third-party files: the Quaternius test characters and the Sandbox's NuGet DLLs |
 | `Sandbox~/` | agent-owned Unity 6000.6.9f1 project (URP, VFX Graph, Unity-MCP, Test Framework, Input System) that references this package as `file:../../package` through the open path |
 | `Sandbox~/Assets/Plugins/NuGet/` | the Unity-MCP plugin's third-party DLLs, committed so a first open compiles; `python Tools~/setup-sandbox.py --restore-nuget` brings them back if they are removed, and the npm tarball leaves out `Sandbox~` (AUTHORING.md, "The committed NuGet DLLs"); their licence entries are in `THIRD-PARTY.md` |
 | `.github/` | CI workflow and the licence-free validation scripts |
 | `Documentation~/` | the documents below |
 
-`Samples~/Showcase/` (the Showcase scene) is being built; `Effects/` holds no effect yet.
+`Effects/` holds no effect yet: until real effects exist, the Showcase stations play the two test fixtures.
 
 ## Documentation
 
@@ -100,6 +102,9 @@ the `.vfx` it builds. Never edit a `.vfx` as text.
   every verb, the recipe format, texture import, inspect, the verified pitfalls, and the differences
   from DESIGN.md.
 - [CAPTURE.md](Documentation~/CAPTURE.md): how a capture works and what `stats.json` guarantees.
+- [SHOWCASE.md](Documentation~/SHOWCASE.md): the Showcase sample: open it, the room and its stations,
+  `VfxStation`, the test characters and the placeholder mannequin, the lighting, the overlay and its
+  keys, how to add an effect, the smoke tests and the known gaps.
 - [CI.md](Documentation~/CI.md): the CI jobs and how to run the validation scripts locally.
 - [DESIGN.md](Documentation~/DESIGN.md): the contract the package was built against.
 - [CHANGELOG.md](CHANGELOG.md).

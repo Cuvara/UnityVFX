@@ -14,6 +14,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `package.json` (`com.cuvara.vfx` 0.1.0, Unity 6000.6, dependencies `com.unity.visualeffectgraph`
   17.6.0 and `com.unity.render-pipelines.universal` 17.6.0, `testables`), MIT licence, README,
   `.gitignore` and `.gitattributes`.
+- `THIRD-PARTY.md`: the notice of every third-party file in the repository: the two Quaternius packs of
+  the Showcase test characters (CC0 1.0 Universal, source, author, download date 2026-11-27, archive
+  SHA-256, what was changed), and the 45 Unity-MCP NuGet DLLs of the Sandbox (one row each with version,
+  author, licence, source and a SHA-256 match with the nuget.org package, the full licence texts, what
+  each install route downloads). The Quaternius site-wide licence page (QAL v1.0) and the three
+  PolyForm Shield `Rql.*.dll` files are marked as owner decisions before a public release.
 - `package.json` `files` (`["*", "!Sandbox~"]`): an npm or OpenUPM tarball leaves out `Sandbox~` (133
   entries, the 45 Unity-MCP NuGet DLLs, 17.8 MiB); checked with `npm pack --dry-run` in a copy outside
   the repository: 349 entries before, 217 after. A Git URL install still downloads the whole
@@ -91,6 +97,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   presets only through `VfxLightingPreset.Get` and `VfxCameraPreset.Get` with the shared rigs and reads
   keys through `VfxStation.WasPressedThisFrame`, so the assembly `Cuvara.VFX.Samples.Showcase`
   (references only `Cuvara.VFX`) compiles with the Input System, the legacy Input Manager or both.
+- `Characters/` (2.15 MB): two CC0 rigged humanoid test characters from the Quaternius pack Universal
+  Base Characters (Standard), `VfxTestCharacterMale.prefab` (1.79 m) and `VfxTestCharacterFemale.prefab`
+  (1.75 m), Humanoid avatars with `VfxSocket`s on `head`, `chest`, `hand_l`, `hand_r` and `feet`, one
+  looping idle clip (`Armature|Idle_Loop` of the Universal Animation Library, Standard, 2.5 s), a
+  controller, two URP Lit materials and `LICENSE.md`.
 - `ShowcaseLibrary.asset` with the fixtures `chain-targets` (lane) and `burst-quads` (single target
   and ground area), referenced from `Tests/Fixtures` by two prefabs in `Effects/`, not copied; a
   `VolumeProfile` with the `dusk` values for the edit-mode look; two URP Lit materials (area marker,
@@ -177,7 +188,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   field of view of each camera preset) and `VfxMannequinTests` (sockets, height, no collider,
   nothing left after the root is destroyed). The test asmdef gets the same `Unity.InputSystem`
   reference and version define as the runtime.
-
 - PlayMode smoke tests of the Showcase in the Sandbox (`Sandbox~/Assets/Tests`, assembly
   `Cuvara.VFX.Sandbox.ShowcaseTests`, no compile reference to the sample): the scene loads and plays
   with no error, its four stations and the lane geometry, five sockets on every character, the
@@ -221,8 +231,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`.github/scripts/ci_sandbox.py`), skipped when the `UNITY_LICENSE` secret is absent.
   `check_metas.py` does not judge `.meta` files under dot or `~` paths (the nested `Sandbox~`
   project, `Samples~`).
-- `Documentation~/AUTHORING.md` (the authoring guide, the verified pitfalls and the differences from
-  DESIGN.md), `CAPTURE.md`, `CI.md` and `DESIGN.md`.
+- `Documentation~/AUTHORING.md` (the authoring guide, the verified pitfalls and the 49 differences from
+  DESIGN.md), `CAPTURE.md`, `CI.md`, `DESIGN.md` and `SHOWCASE.md` (the Showcase as built: the room and
+  its measured station layout, `VfxStation`, the characters, sockets and the placeholder mannequin, the
+  lighting and why it matches the capture stage, the overlay and its keys, how to add an effect, the
+  smoke tests, the limits and known gaps).
+- `README.md` lists the Showcase, `Runtime/Showcase`, `Library`, `Effects` and `Tests/Fixtures/ChainTargets`.
 
 ### Changed
 
@@ -250,7 +264,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `vfxcli.py` rewrites the `character` path argument too: a path inside `Samples~/Showcase` becomes
   `Assets/Showcase/...` (where the Sandbox sees the sample) for every path argument, and the keyword
   `placeholder` is passed unchanged.
-
 - `VfxStation.PlayNow` returns `VfxHandle.None` without logging and without looking up a player when
   the station has no effect id, so an empty station with the `Interval` trigger stays silent instead
   of logging an error at every interval.
@@ -267,7 +280,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   preset.
 - With the `night` preset and the `side` camera the backdrop faced away from the key light and
   rendered near black; the night key now comes from the same side as the day and dusk keys.
-
 - A built graph and a new subgraph were saved at resource version 0, so VFX Graph converted every
   gradient colour key with `Color.linear` at each compile, and `describe` did not match the
   compiled graph. A new graph is now at the current graph and resource versions before the first

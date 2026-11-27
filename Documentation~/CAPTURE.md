@@ -259,6 +259,11 @@ not end.
   need (a mesh, a skinned mesh, a custom binder) are not set, and the Showcase covers those.
 - The `side` camera looks down the character lane and sees the nearest target from behind; the lane
   reads in `gameplay` (all of it) and `close` (its middle).
+- The stage disables the cameras, lights and Volumes of every other loaded scene
+  (`VfxCaptureStage.DisableOtherScenes`), but not their renderers or components. With
+  `Samples~/Showcase/Showcase.unity` open in the editor, the play-mode capture also runs the sample's
+  `ShowcaseCharacterSpawn` components and shows the Showcase's characters around the effect (seen
+  2026-11-27 in a BurstQuads capture without `character`). Open an empty scene before a capture.
 - The capture needs the editor in edit mode with no compile error and no other capture pending.
   A script change during a capture reloads the domain and fails the job with an error result.
 
