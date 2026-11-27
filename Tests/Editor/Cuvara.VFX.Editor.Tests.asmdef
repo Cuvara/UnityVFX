@@ -1,0 +1,27 @@
+{
+  "name": "Cuvara.VFX.Editor.Tests",
+  "rootNamespace": "Cuvara.VFX.Editor.Tests",
+  "references": [
+    "Cuvara.VFX",
+    "Cuvara.VFX.Editor",
+    "Cuvara.VFX.Tests",
+    "Unity.Testing.VisualEffectGraph.Editor",
+    "UnityEngine.TestRunner",
+    "UnityEditor.TestRunner"
+  ],
+  "includePlatforms": [
+    "Editor"
+  ],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": true,
+  "precompiledReferences": [
+    "nunit.framework.dll"
+  ],
+  "autoReferenced": false,
+  "defineConstraints": [
+    "UNITY_INCLUDE_TESTS"
+  ],
+  "versionDefines": [],
+  "noEngineReferences": false
+}

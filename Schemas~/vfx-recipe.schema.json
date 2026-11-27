@@ -1,0 +1,216 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Cuvara/UnityVFX/Schemas~/vfx-recipe.schema.json",
+  "title": "com.cuvara.vfx recipe",
+  "description": "The source of truth of an effect: <Name>.vfxrecipe.json, committed next to the <Name>.vfx that the build verb creates from it. Ops run in order. Every node gets a recipe-local id; a slot is addressed as <id>.<slot path>, the path joining slot names with dots (init.bounds.center); a slot without a name is #<index>; 'out' is the only output of a node that has exactly one. Type, variant, setting and slot names are the ones the catalog verb prints. Asset values are project-relative paths (Assets/... or Packages/<package>/...) or {\"guid\": ...}. The builder checks names against the VFX Graph library; this schema checks the shape. Reference: Documentation~/AUTHORING.md, section Recipe.",
+  "type": "object",
+  "required": ["schema", "id", "ops"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": {"const": "cuvara.vfx-recipe/1"},
+    "id": {"type": "string", "minLength": 1, "pattern": "^[a-z0-9][a-z0-9-]*$", "description": "effect id, kebab-case (chain-lightning)"},
+    "vfx_graph": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+(\\.[0-9]+)?$", "description": "VFX Graph major.minor the recipe was written for; another installed major.minor is a warning"},
+    "meta": {"$ref": "#/$defs/meta"},
+    "ops": {"type": "array", "items": {"$ref": "#/$defs/op"}}
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_-]*$"},
+    "ref": {"type": "string", "minLength": 1, "description": "an id of this recipe, or of the existing graph when used by apply (c0, c0.b1, o2, p0)"},
+    "slotAddress": {"type": "string", "pattern": "^[^.]+(\\.[^.]+)+$", "description": "<id>.<slot path>"},
+    "typeName": {"type": "string", "minLength": 1, "description": "catalog type (VFXSpawnerBurst) or type_full"},
+    "variant": {"type": "string", "minLength": 1, "description": "catalog variant id (Spawn/Single Burst)"},
+    "assetPath": {"type": "string", "pattern": "^(Assets|Packages)/", "description": "project-relative asset path"},
+    "assetRef": {
+      "description": "an asset value: a project-relative path, or {\"guid\": ...} (or {\"path\": ...}); the builder loads the asset and the graph stores its GUID",
+      "anyOf": [
+        {"$ref": "#/$defs/assetPath"},
+        {"type": "object", "required": ["guid"], "additionalProperties": false,
+         "properties": {"guid": {"type": "string", "pattern": "^[0-9a-f]{32}$"}, "path": {"$ref": "#/$defs/assetPath"}}},
+        {"type": "object", "required": ["path"], "additionalProperties": false,
+         "properties": {"path": {"$ref": "#/$defs/assetPath"}}}
+      ]
+    },
+    "settings": {"type": "object", "description": "setting name to value, applied in order"},
+    "slots": {"type": "object", "description": "slot path (relative to the node) to value, applied in order"},
+    "meta": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "duration_seconds": {"type": "number", "exclusiveMinimum": 0},
+        "looping": {"type": "boolean"},
+        "tags": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "phases": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "seconds"],
+            "additionalProperties": false,
+            "properties": {
+              "name": {"type": "string", "minLength": 1},
+              "seconds": {"type": "number", "minimum": 0}
+            }
+          }
+        }
+      }
+    },
+    "op": {
+      "type": "object",
+      "required": ["op"],
+      "properties": {
+        "op": {"enum": ["add_parameter", "add_context", "add_block", "add_operator", "set_setting", "set_slot",
+                        "link_slots", "link_flow", "use_subgraph", "set_output", "comment"]}
+      },
+      "allOf": [
+        {"if": {"properties": {"op": {"const": "add_parameter"}}}, "then": {"$ref": "#/$defs/add_parameter"}},
+        {"if": {"properties": {"op": {"const": "add_context"}}}, "then": {"$ref": "#/$defs/add_context"}},
+        {"if": {"properties": {"op": {"const": "add_block"}}}, "then": {"$ref": "#/$defs/add_block"}},
+        {"if": {"properties": {"op": {"const": "add_operator"}}}, "then": {"$ref": "#/$defs/add_operator"}},
+        {"if": {"properties": {"op": {"const": "set_setting"}}}, "then": {"$ref": "#/$defs/set_setting"}},
+        {"if": {"properties": {"op": {"const": "set_slot"}}}, "then": {"$ref": "#/$defs/set_slot"}},
+        {"if": {"properties": {"op": {"const": "link_slots"}}}, "then": {"$ref": "#/$defs/link_slots"}},
+        {"if": {"properties": {"op": {"const": "link_flow"}}}, "then": {"$ref": "#/$defs/link_flow"}},
+        {"if": {"properties": {"op": {"const": "use_subgraph"}}}, "then": {"$ref": "#/$defs/use_subgraph"}},
+        {"if": {"properties": {"op": {"const": "set_output"}}}, "then": {"$ref": "#/$defs/set_output"}},
+        {"if": {"properties": {"op": {"const": "comment"}}}, "then": {"$ref": "#/$defs/comment"}}
+      ]
+    },
+    "add_parameter": {
+      "description": "adds a parameter of a catalog parameter type (name Color or type Vector3); exposed defaults to true",
+      "type": "object",
+      "required": ["op", "id", "type", "name"],
+      "additionalProperties": false,
+      "properties": {
+        "op": {"const": "add_parameter"},
+        "id": {"$ref": "#/$defs/id"},
+        "type": {"type": "string", "minLength": 1},
+        "name": {"type": "string", "minLength": 1, "description": "exposed name, the property name on the VisualEffect"},
+        "value": {},
+        "exposed": {"type": "boolean"},
+        "category": {"type": "string"},
+        "tooltip": {"type": "string"}
+      }
+    },
+    "add_context": {
+      "type": "object",
+      "required": ["op", "id", "type"],
+      "additionalProperties": false,
+      "properties": {
+        "op": {"const": "add_context"},
+        "id": {"$ref": "#/$defs/id"},
+        "type": {"$ref": "#/$defs/typeName"},
+        "variant": {"$ref": "#/$defs/variant"},
+        "label": {"type": "string"},
+        "settings": {"$ref": "#/$defs/settings"},
+        "slots": {"$ref": "#/$defs/slots"}
+      }
+    },
+    "add_block": {
+      "type": "object",
+      "required": ["op", "id", "context", "type"],
+      "additionalProperties": false,
+      "properties": {
+        "op": {"const": "add_block"},
+        "id": {"$ref": "#/$defs/id"},
+        "context": {"$ref": "#/$defs/ref"},
+        "type": {"$ref": "#/$defs/typeName"},
+        "variant": {"$ref": "#/$defs/variant"},
+        "settings": {"$ref": "#/$defs/settings"},
+        "slots": {"$ref": "#/$defs/slots"}
+      }
+    },
+    "add_operator": {
+      "type": "object",
+      "required": ["op", "id", "type"],
+      "additionalProperties": false,
+      "properties": {
+        "op": {"const": "add_operator"},
+        "id": {"$ref": "#/$defs/id"},
+        "type": {"$ref": "#/$defs/typeName"},
+        "variant": {"$ref": "#/$defs/variant"},
+        "settings": {"$ref": "#/$defs/settings"},
+        "slots": {"$ref": "#/$defs/slots"}
+      }
+    },
+    "set_setting": {
+      "type": "object",
+      "required": ["op", "node", "name", "value"],
+      "additionalProperties": false,
+      "properties": {
+        "op": {"const": "set_setting"},
+        "node": {"$ref": "#/$defs/ref"},
+        "name": {"type": "string", "minLength": 1},
+        "value": {}
+      }
+    },
+    "set_slot": {
+      "type": "object",
+      "required": ["op", "slot"],
+      "anyOf": [{"required": ["value"]}, {"required": ["space"]}],
+      "additionalProperties": false,
+      "properties": {
+        "op": {"const": "set_slot"},
+        "slot": {"$ref": "#/$defs/slotAddress"},
+        "value": {},
+        "space": {"enum": ["None", "Local", "World"]}
+      }
+    },
+    "link_slots": {
+      "type": "object",
+      "required": ["op", "from", "to"],
+      "additionalProperties": false,
+      "properties": {
+        "op": {"const": "link_slots"},
+        "from": {"$ref": "#/$defs/slotAddress"},
+        "to": {"$ref": "#/$defs/slotAddress"}
+      }
+    },
+    "link_flow": {
+      "type": "object",
+      "required": ["op", "from", "to"],
+      "additionalProperties": false,
+      "properties": {
+        "op": {"const": "link_flow"},
+        "from": {"$ref": "#/$defs/ref"},
+        "to": {"$ref": "#/$defs/ref"},
+        "from_slot": {"type": "integer", "minimum": 0},
+        "to_slot": {"type": "integer", "minimum": 0}
+      }
+    },
+    "use_subgraph": {
+      "type": "object",
+      "required": ["op", "id", "asset"],
+      "additionalProperties": false,
+      "properties": {
+        "op": {"const": "use_subgraph"},
+        "id": {"$ref": "#/$defs/id"},
+        "asset": {"type": "string", "pattern": "^(Assets|Packages)/.+\\.(vfx|vfxoperator|vfxblock)$"},
+        "context": {"$ref": "#/$defs/ref", "description": "the context of a .vfxblock subgraph; not allowed for .vfx and .vfxoperator"},
+        "slots": {"$ref": "#/$defs/slots", "description": "the subgraph's exposed parameters by name"}
+      }
+    },
+    "set_output": {
+      "type": "object",
+      "required": ["op", "node"],
+      "anyOf": [{"required": ["texture"]}, {"required": ["blend_mode"]}, {"required": ["color_mapping"]}, {"required": ["gradient"]}],
+      "additionalProperties": false,
+      "properties": {
+        "op": {"const": "set_output"},
+        "node": {"$ref": "#/$defs/ref"},
+        "texture": {"anyOf": [{"$ref": "#/$defs/assetRef"}, {"type": "null"}]},
+        "blend_mode": {"enum": ["Opaque", "Alpha", "Additive", "AlphaPremultiplied"]},
+        "color_mapping": {"enum": ["Default", "GradientMapped"]},
+        "gradient": {"type": "object"}
+      }
+    },
+    "comment": {
+      "type": "object",
+      "required": ["op", "text"],
+      "additionalProperties": false,
+      "properties": {
+        "op": {"const": "comment"},
+        "title": {"type": "string"},
+        "text": {"type": "string"}
+      }
+    }
+  }
+}

@@ -1,0 +1,76 @@
+# Unity meta files are intentionally tracked in a UPM package.
+
+# Sandbox~ is an agent-owned Unity project. Its generated folders are never committed.
+# These are anchored on purpose: the package's own root Library/ folder holds shared assets
+# (see Documentation~/DESIGN.md) and must stay tracked.
+/Sandbox~/Library/
+/Sandbox~/Temp/
+/Sandbox~/Logs/
+/Sandbox~/UserSettings/
+/Sandbox~/Captures/
+/Sandbox~/obj/
+/Sandbox~/Build/
+/Sandbox~/Builds/
+/Sandbox~/MemoryCaptures/
+/Sandbox~/Recordings/
+/Sandbox~/ProfilerCaptures/
+/Sandbox~/.ai-game-dev/
+/Sandbox~/Assets/InitTestScene*.unity
+/Sandbox~/Assets/InitTestScene*.unity.meta
+# Scratch copies (for example Unity's sample graphs, read with describe; Unity Companion License: never
+# commit them) and temporary test assets. Delete the scratch copy when done.
+/Sandbox~/Assets/Scratch/
+/Sandbox~/Assets/Scratch.meta
+# Temporary folders of the recipe builder (CuvaraVfxBuildTemp), the texture import and the tests
+# (CuvaraVfx*TestTemp); a crash or a killed editor can leave them behind. The pattern covers their .meta.
+/Sandbox~/Assets/CuvaraVfx*Temp*
+/Sandbox~/*.csproj
+/Sandbox~/*.sln
+/Sandbox~/*.slnx
+/Sandbox~/*.user
+
+# Directory junctions (Windows) or symlinks created by Tools~/setup-sandbox.py. The sample has one
+# copy under Samples~/Showcase, and its .meta files are committed there. The last line is the
+# package link of the first layout (a directory cycle; setup-sandbox.py removes it as a link):
+# git must never descend into it. See Documentation~/AUTHORING.md, section "Sandbox".
+/Sandbox~/Assets/Showcase
+/Sandbox~/Assets/Showcase.meta
+/Sandbox~/Packages/com.cuvara.vfx
+
+# Capture and batch-mode output
+Captures/
+vfx-out/
+*.log
+
+# Generated solution / project files
+*.csproj
+*.unityproj
+*.sln
+*.slnx
+*.suo
+*.user
+*.userprefs
+*.pidb
+*.booproj
+*.svd
+*.opendb
+*.VC.db
+obj/
+.vs/
+.idea/
+.vscode/
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Crash / profiler dumps
+sysinfo.txt
+crashlytics-build.properties
+*.stackdump

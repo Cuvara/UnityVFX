@@ -1,0 +1,215 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  checks: write
+
+env:
+  UNITY_VERSION: 6000.6.9f1
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Licence-free validation. Needs no Unity, no GPU and no secret, so it runs on every push
+  # and every pull request, including forks. Each step is one script under .github/scripts/
+  # that also runs locally: see Documentation~/CI.md.
+  # ---------------------------------------------------------------------------
+  validate:
+    name: Validate package
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install validation dependencies
+        run: python -m pip install --disable-pip-version-check jsonschema pyyaml
+
+      - name: package.json fields and versions
+        run: python .github/scripts/check_package_json.py
+
+      # The heading is what release tooling and the package's consumers read.
+      - name: CHANGELOG has an [Unreleased] heading
+        run: python .github/scripts/check_changelog.py
+
+      # A missing .meta does not fail a build and does not show in this repository's test
+      # results. Unity logs an Error and the test framework turns it into an exception, which
+      # fails a consumer's whole suite. An orphan .meta is an error as well.
+      - name: Every Unity-visible file and folder has a .meta
+        run: python .github/scripts/check_metas.py
+
+      - name: asmdef names
+        run: python .github/scripts/check_asmdefs.py
+
+      # The schemas are the contract rpg-factory reads; a broken schema would make every
+      # validation that uses it meaningless, so they are checked before the recipes.
+      - name: JSON Schemas are valid draft 2020-12 schemas
+        run: python .github/scripts/check_schemas.py
+
+      # Passes while Schemas~/vfx-recipe.schema.json or the recipes do not exist yet, and fails
+      # on an invalid recipe as soon as both do.
+      - name: Committed recipes match the recipe schema
+        run: python .github/scripts/check_recipes.py
+
+      - name: Python tools and scripts compile
+        run: python -m py_compile Tools~/*.py .github/scripts/*.py
+
+      - name: Workflow files parse
+        run: |
+          python - <<'PY'
+          import glob, sys, yaml
+          files = sorted(glob.glob(".github/workflows/*.yml"))
+          for path in files:
+              with open(path, encoding="utf-8") as handle:
+                  yaml.safe_load(handle)
+          print(f"{len(files)} workflow file(s) parse")
+          PY
+
+  # ---------------------------------------------------------------------------
+  # Does this repository have a Unity licence? The jobs below skip, rather than fail, when the
+  # UNITY_LICENSE secret is absent (forks, pull requests from forks, a repository that has not
+  # been given the secret yet). A secret cannot be read in a job-level `if`, so this job turns
+  # its presence into an output.
+  # ---------------------------------------------------------------------------
+  licence:
+    name: Unity licence available
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    outputs:
+      present: ${{ steps.check.outputs.present }}
+    steps:
+      - name: Check the UNITY_LICENSE secret
+        id: check
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+        run: |
+          if [ -n "$UNITY_LICENSE" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::UNITY_LICENSE is not set; the Unity test jobs are skipped."
+          fi
+
+  # ---------------------------------------------------------------------------
+  # Unity tests against a copy of Sandbox~, which lists this package in `testables`.
+  # Unity 6000.6 cannot map package scripts to classes when the project path has a component
+  # ending in `~` (Documentation~/AUTHORING.md, Pitfalls), and the Sandbox manifest references
+  # the package as file:../../package, so the project is never opened at Sandbox~ itself.
+  # EditMode and PlayMode are separate jobs so a failure names the mode.
+  # ---------------------------------------------------------------------------
+  editmode:
+    name: Unity EditMode tests
+    needs: licence
+    if: needs.licence.outputs.present == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      # The package goes to sandbox-home/package and a copy of Sandbox~ to sandbox-home/Sandbox:
+      # the layout of the sandbox home that Tools~/setup-sandbox.py makes with links on a
+      # workstation (Documentation~/CI.md, "The Sandbox in CI").
+      - uses: actions/checkout@v4
+        with:
+          path: sandbox-home/package
+
+      - name: Lay out the Sandbox like the open path
+        run: python3 sandbox-home/package/.github/scripts/ci_sandbox.py sandbox-home
+
+      - uses: actions/cache@v4
+        with:
+          path: sandbox-home/Sandbox/Library
+          key: Library-editmode-${{ env.UNITY_VERSION }}-${{ hashFiles('sandbox-home/package/Sandbox~/Packages/manifest.json', 'sandbox-home/package/Sandbox~/Packages/packages-lock.json', 'sandbox-home/package/package.json') }}
+          restore-keys: |
+            Library-editmode-${{ env.UNITY_VERSION }}-
+
+      - name: Run EditMode tests
+        uses: game-ci/unity-test-runner@v4.3.2
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+        with:
+          projectPath: sandbox-home/Sandbox
+          unityVersion: ${{ env.UNITY_VERSION }}
+          testMode: EditMode
+          # Category GPU holds every test that needs VFX Graph compute simulation or a capture. The
+          # hosted runner has no GPU (Mesa llvmpipe): there those tests crash the editor or see 0
+          # particles, so CI excludes them and they run only in the local Sandbox
+          # (Documentation~/CI.md). The value is NOT quoted on purpose. game-ci v4.3.2 puts it in
+          # `--env CUSTOM_PARAMETERS="..."` of a docker command run without a shell
+          # (src/model/docker.ts, image-environment-factory.ts) and dist/platforms/ubuntu/run_tests.sh
+          # expands `$CUSTOM_PARAMETERS` unquoted: it is split on whitespace and no quote removal
+          # follows, so a quote would reach Unity as a character of the category and `!GPU` arrives
+          # intact (the script is non-interactive: no history expansion). Unity Test Framework
+          # command line: -testCategory takes `;`-separated names and `!` negates one.
+          customParameters: -testCategory !GPU
+          githubToken: ${{ secrets.GITHUB_TOKEN }}
+          checkName: EditMode Test Results
+
+      - name: Assert tests ran and passed
+        if: always()
+        run: python3 sandbox-home/package/.github/scripts/assert_test_results.py artifacts --label "EditMode tests" --excluded-category GPU
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: editmode-results
+          path: artifacts/
+
+  playmode:
+    name: Unity PlayMode tests
+    needs: licence
+    if: needs.licence.outputs.present == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      # The package goes to sandbox-home/package and a copy of Sandbox~ to sandbox-home/Sandbox:
+      # the layout of the sandbox home that Tools~/setup-sandbox.py makes with links on a
+      # workstation (Documentation~/CI.md, "The Sandbox in CI").
+      - uses: actions/checkout@v4
+        with:
+          path: sandbox-home/package
+
+      - name: Lay out the Sandbox like the open path
+        run: python3 sandbox-home/package/.github/scripts/ci_sandbox.py sandbox-home
+
+      - uses: actions/cache@v4
+        with:
+          path: sandbox-home/Sandbox/Library
+          key: Library-playmode-${{ env.UNITY_VERSION }}-${{ hashFiles('sandbox-home/package/Sandbox~/Packages/manifest.json', 'sandbox-home/package/Sandbox~/Packages/packages-lock.json', 'sandbox-home/package/package.json') }}
+          restore-keys: |
+            Library-playmode-${{ env.UNITY_VERSION }}-
+
+      - name: Run PlayMode tests
+        uses: game-ci/unity-test-runner@v4.3.2
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+        with:
+          projectPath: sandbox-home/Sandbox
+          unityVersion: ${{ env.UNITY_VERSION }}
+          testMode: PlayMode
+          # Same exclusion as the EditMode job above.
+          customParameters: -testCategory !GPU
+          githubToken: ${{ secrets.GITHUB_TOKEN }}
+          checkName: PlayMode Test Results
+
+      - name: Assert tests ran and passed
+        if: always()
+        run: python3 sandbox-home/package/.github/scripts/assert_test_results.py artifacts --label "PlayMode tests" --excluded-category GPU
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playmode-results
+          path: artifacts/

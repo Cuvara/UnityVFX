@@ -1,0 +1,16 @@
+{
+  "name": "Cuvara.VFX.Samples.Showcase",
+  "rootNamespace": "Cuvara.VFX.Samples.Showcase",
+  "references": [
+    "Cuvara.VFX"
+  ],
+  "includePlatforms": [],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": true,
+  "defineConstraints": [],
+  "versionDefines": [],
+  "noEngineReferences": false
+}

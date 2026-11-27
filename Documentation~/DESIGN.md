@@ -48,16 +48,31 @@ Editor/Bridge/               Unity.Testing.VisualEffectGraph.Editor: VfxGraphBri
 Library/                     shared subgraphs, gradients, textures used by every effect
 Effects/<Name>/              <Name>.vfxrecipe.json, <Name>.vfx, <Name>.prefab, textures
 Samples~/Showcase/           prototype scene (grid room, test characters, lighting presets)
-Sandbox~/                    agent-owned Unity project; references the package as file:../..
+Sandbox~/                    agent-owned Unity project; opened only through the open path (below)
 Schemas~/                    JSON Schemas of the formats below
 Tests/Editor, Tests/Runtime  Cuvara.VFX.Editor.Tests, Cuvara.VFX.Tests
-Tools~/                      vfxcli.py (one command for agents), setup-sandbox.py
+Tools~/                      vfxcli.py (one command for agents), setup-sandbox.py, sandbox_paths.py
 Documentation~/              AUTHORING.md, CAPTURE.md, SHOWCASE.md, CI.md, this file
 ```
 
 Folders ending in `~` are invisible to Unity. `Sandbox~/Assets/Showcase` is a directory junction
 (Windows) or symlink to `Samples~/Showcase`, created by `Tools~/setup-sandbox.py` and gitignored,
 so the sample has one copy and its `.meta` files are committed under `Samples~/Showcase`.
+
+The Sandbox is never opened at `Sandbox~/`: Unity 6000.6 cannot map package scripts to classes
+when the project path has a component ending in `~` or starting with `.` (package assets are then
+saved with `m_Script: {fileID: 0}`). `Tools~/setup-sandbox.py` creates a per-clone folder outside
+the repository, the sandbox home (`%LOCALAPPDATA%\Cuvara\vfx-sandbox-<8 hex>\` on Windows,
+overridable with `CUVARA_VFX_SANDBOX_HOME`), holding two links (outside the repository):
+
+```
+<sandbox home>/Sandbox   -> <repository>/Sandbox~   the open path: editors and unity-mcp-cli use it
+<sandbox home>/package   -> <repository>            Sandbox~/Packages/manifest.json: "file:../../package"
+```
+
+No link inside the repository may point at the repository or an ancestor of itself (a directory
+cycle, which the editor's initial Search indexing walked until the editor was killed);
+`setup-sandbox.py` refuses to run while one exists. Evidence and counts: AUTHORING.md, Pitfalls.
 
 ## Runtime (assembly `Cuvara.VFX`)
 
@@ -70,6 +85,9 @@ so the sample has one copy and its `.meta` files are committed under `Samples~/S
 
 ## Agent interface
 
+Where the built verbs, formats, schemas or layout differ from this section, the differences are
+listed in [AUTHORING.md, "Differences from DESIGN.md"](AUTHORING.md#differences-from-designmd).
+
 One entry point, JSON in and JSON out, so every bridge can call it:
 
 ```csharp
@@ -81,6 +99,13 @@ public static void   Cuvara.VFX.Editor.VfxCli.Batch();   // -executeMethod, read
 calls `Run` through `unity-mcp-cli run-tool script-execute` when an editor has the project open,
 and falls back to a batch-mode editor with graphics (never `-nographics`: VFX needs a GPU)
 otherwise. Exit codes: 0 ok, 1 the verb reported `"ok": false`, 2 usage, 3 no editor available.
+
+`--project Sandbox~` (the default), the full `Sandbox~` path and the open path all mean the Sandbox:
+vfxcli.py maps them to the open path with `sandbox_paths.resolve_project` and passes that path to
+unity-mcp-cli and to the batch-mode editor. When the open path or the package link is missing it
+fails with exit code 3 and a message that names `python Tools~/setup-sandbox.py`. Agents start,
+watch and stop the Sandbox editor only through `setup-sandbox.py --open`, `--watch` and `--close`,
+which kill that editor above a memory limit (default 12 GB private bytes).
 
 Every result is `{"ok": bool, "verb": str, "errors": [..], "warnings": [..], ...payload}`.
 
@@ -186,6 +211,13 @@ Graph, the Unity-MCP plugin, the test framework and the Input System, and nothin
 `Sandbox~/Library`, `Temp`, `Logs`, `UserSettings` and `Captures` are gitignored. Only one editor
 instance may have it open. Agents never open, drive or modify another Unity project (the game
 client's editor belongs to the user).
+
+The committed project stays in `Sandbox~/`; it is opened through the open path
+`<sandbox home>/Sandbox` and references the package as `file:../../package` (see Layout). Run
+`python Tools~/setup-sandbox.py` once per clone (idempotent: a second run changes nothing and
+prints the same state; links are only ever removed as links), then `--open`, `--watch`,
+`--close`; `--print-open-path` prints the path to pass to unity-mcp-cli. The workflow and the
+verified pitfalls are in AUTHORING.md.
 
 ## Conventions
 

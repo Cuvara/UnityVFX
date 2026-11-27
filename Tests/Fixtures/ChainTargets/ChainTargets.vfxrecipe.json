@@ -1,0 +1,46 @@
+{
+  "schema": "cuvara.vfx-recipe/1",
+  "id": "chain-targets",
+  "vfx_graph": "17.6",
+  "meta": {
+    "duration_seconds": 1.0,
+    "looping": false,
+    "tags": ["fixture"],
+    "phases": [
+      {"name": "burst", "seconds": 0.1},
+      {"name": "fade", "seconds": 0.9}
+    ]
+  },
+  "ops": [
+    {"op": "comment", "title": "ChainTargets", "text": "Test fixture of com.cuvara.vfx: exposes the default properties of ChainLightningBinder (SourcePosition, TargetPosition0 to TargetPosition7, HopCount) and draws one burst of quads on the line from SourcePosition to TargetPosition7, which the binder sets to the last valid target."},
+    {"op": "add_parameter", "id": "p_source", "name": "SourcePosition", "type": "Vector3", "value": [0.0, 1.0, 0.0], "exposed": true},
+    {"op": "add_parameter", "id": "p_target0", "name": "TargetPosition0", "type": "Vector3", "value": [0.0, 1.0, 0.0], "exposed": true},
+    {"op": "add_parameter", "id": "p_target1", "name": "TargetPosition1", "type": "Vector3", "value": [0.0, 1.0, 0.0], "exposed": true},
+    {"op": "add_parameter", "id": "p_target2", "name": "TargetPosition2", "type": "Vector3", "value": [0.0, 1.0, 0.0], "exposed": true},
+    {"op": "add_parameter", "id": "p_target3", "name": "TargetPosition3", "type": "Vector3", "value": [0.0, 1.0, 0.0], "exposed": true},
+    {"op": "add_parameter", "id": "p_target4", "name": "TargetPosition4", "type": "Vector3", "value": [0.0, 1.0, 0.0], "exposed": true},
+    {"op": "add_parameter", "id": "p_target5", "name": "TargetPosition5", "type": "Vector3", "value": [0.0, 1.0, 0.0], "exposed": true},
+    {"op": "add_parameter", "id": "p_target6", "name": "TargetPosition6", "type": "Vector3", "value": [0.0, 1.0, 0.0], "exposed": true},
+    {"op": "add_parameter", "id": "p_target7", "name": "TargetPosition7", "type": "Vector3", "value": [0.0, 1.0, 0.0], "exposed": true},
+    {"op": "add_parameter", "id": "p_hops", "name": "HopCount", "type": "int", "value": 0, "exposed": true},
+    {"op": "add_parameter", "id": "p_tint", "name": "Tint", "type": "Color", "value": [1.2, 2.0, 4.0, 1.0], "exposed": true},
+    {"op": "add_context", "id": "spawn", "type": "VFXBasicSpawner"},
+    {"op": "add_block", "id": "burst", "context": "spawn", "type": "VFXSpawnerBurst", "variant": "Spawn/Single Burst", "slots": {"Count": 48, "Delay": 0.0}},
+    {"op": "add_context", "id": "init", "type": "VFXBasicInitialize", "variant": "Context/#0Common/Initialize Particle",
+     "settings": {"capacity": 64, "boundsMode": "Manual"}, "slots": {"bounds": {"center": [0.0, 1.0, 0.0], "size": [40.0, 8.0, 8.0]}}},
+    {"op": "add_block", "id": "lifetime", "context": "init", "type": "SetAttribute", "settings": {"attribute": "lifetime", "Random": "Uniform"}, "slots": {"A": 0.6, "B": 0.9}},
+    {"op": "add_block", "id": "position", "context": "init", "type": "SetAttribute", "settings": {"attribute": "position", "Random": "Uniform"}},
+    {"op": "add_block", "id": "size", "context": "init", "type": "SetAttribute", "settings": {"attribute": "size"}, "slots": {"_Size": 0.25}},
+    {"op": "add_context", "id": "update", "type": "VFXBasicUpdate"},
+    {"op": "add_context", "id": "output", "type": "VFXPlanarPrimitiveOutput", "variant": "Context/#2Output Basic/Output Particle|Unlit|Quad"},
+    {"op": "add_block", "id": "orient", "context": "output", "type": "Orient", "settings": {"mode": "FaceCameraPlane"}},
+    {"op": "add_block", "id": "tint", "context": "output", "type": "SetAttribute", "settings": {"attribute": "color"}},
+    {"op": "set_output", "node": "output", "blend_mode": "Additive"},
+    {"op": "link_flow", "from": "spawn", "to": "init"},
+    {"op": "link_flow", "from": "init", "to": "update"},
+    {"op": "link_flow", "from": "update", "to": "output"},
+    {"op": "link_slots", "from": "p_source.out", "to": "position.A"},
+    {"op": "link_slots", "from": "p_target7.out", "to": "position.B"},
+    {"op": "link_slots", "from": "p_tint.out", "to": "tint._Color"}
+  ]
+}

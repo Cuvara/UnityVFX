@@ -1,0 +1,264 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Cuvara/UnityVFX/Schemas~/vfx-inspect.schema.json",
+  "title": "com.cuvara.vfx inspect result",
+  "description": "Result of the inspect verb (VfxCli.Run(\"inspect\", {\"effect\": ...})) with ok true: the static facts of one effect that a lint reads. Node ids are the describe ids (contexts c<n>, blocks c<n>.b<m>, operators o<n>, parameters p<n>, systems s<n>). No timestamp: two calls on an unchanged effect give the same JSON.",
+  "type": "object",
+  "required": ["ok", "verb", "errors", "warnings", "schema", "effect", "asset", "prefab", "recipe", "vfx_graph", "unity", "build_target",
+               "describe_sha256", "systems", "outputs", "textures", "exposed_properties", "hdr_colors", "totals"],
+  "additionalProperties": false,
+  "properties": {
+    "ok": {"const": true},
+    "verb": {"const": "inspect"},
+    "errors": {"type": "array", "maxItems": 0},
+    "warnings": {"type": "array", "items": {"type": "string"}},
+    "schema": {"const": "cuvara.vfx-inspect/1"},
+    "effect": {
+      "type": "object",
+      "description": "the effect as given: a prefab that holds one VisualEffect, or a .vfx asset",
+      "required": ["path", "guid", "kind"],
+      "additionalProperties": false,
+      "properties": {
+        "path": {"type": "string"},
+        "guid": {"$ref": "#/$defs/guid"},
+        "kind": {"enum": ["prefab", "vfx"]}
+      }
+    },
+    "asset": {
+      "type": "object",
+      "description": "the .vfx asset the facts are read from (the prefab's VisualEffect asset for a prefab)",
+      "required": ["path", "guid"],
+      "additionalProperties": false,
+      "properties": {"path": {"type": "string"}, "guid": {"$ref": "#/$defs/guid"}}
+    },
+    "prefab": {
+      "description": "null for a .vfx effect",
+      "anyOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "required": ["path", "guid", "visual_effect"],
+          "additionalProperties": false,
+          "properties": {
+            "path": {"type": "string"},
+            "guid": {"$ref": "#/$defs/guid"},
+            "visual_effect": {"type": "string", "description": "hierarchy path of the GameObject with the VisualEffect, from the prefab root"}
+          }
+        }
+      ]
+    },
+    "recipe": {
+      "description": "the <Name>.vfxrecipe.json next to <Name>.vfx with the SHA-256 of its bytes, or null when there is none",
+      "anyOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "required": ["path", "sha256"],
+          "additionalProperties": false,
+          "properties": {"path": {"type": "string"}, "sha256": {"$ref": "#/$defs/sha256"}}
+        }
+      ]
+    },
+    "vfx_graph": {"type": ["string", "null"], "description": "installed com.unity.visualeffectgraph version"},
+    "unity": {"type": "string"},
+    "build_target": {"type": "string", "description": "the editor's active build target; texture formats are the ones imported for it"},
+    "describe_sha256": {"$ref": "#/$defs/sha256", "description": "SHA-256 of the compact JSON describe returns for the asset (the build result's describe_sha256)"},
+    "systems": {
+      "type": "array",
+      "description": "one per VFX data, in describe order",
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "data_type", "capacity", "contexts", "outputs"],
+        "additionalProperties": false,
+        "properties": {
+          "id": {"type": "string", "pattern": "^s[0-9]+$"},
+          "name": {"type": "string", "description": "the system name VFX Graph uses in shader names and the graph window: the author's title, or System, System (1), ..."},
+          "data_type": {"type": "string", "description": "SpawnEvent, Particle, ParticleStrip, Mesh, ..."},
+          "capacity": {"type": ["integer", "null"], "minimum": 0, "description": "null for a system without particles (a spawner)"},
+          "contexts": {"type": "array", "items": {"$ref": "#/$defs/contextId"}},
+          "outputs": {"type": "array", "items": {"$ref": "#/$defs/contextId"}}
+        }
+      }
+    },
+    "outputs": {
+      "type": "array",
+      "description": "every context of type Output, in describe order",
+      "items": {
+        "type": "object",
+        "required": ["id", "system", "type", "name", "label", "blend_mode", "shader", "shader_graph", "effective", "render_settings"],
+        "additionalProperties": false,
+        "properties": {
+          "id": {"$ref": "#/$defs/contextId"},
+          "system": {"type": ["string", "null"]},
+          "type": {"type": "string", "description": "the context class: VFXPlanarPrimitiveOutput, VFXComposedParticleOutput, VFXStaticMeshOutput, ..."},
+          "name": {"type": "string"},
+          "label": {"type": "string"},
+          "blend_mode": {"enum": ["Additive", "Alpha", "AlphaPremultiplied", "Opaque", null], "description": "the blendMode setting; null for an output without one (static mesh)"},
+          "shader": {
+            "description": "the shader the output renders with: the one VFX Graph generated (a sub-asset of the .vfx, path and GUID of the .vfx), or for a static mesh output the shader it was given; null when none was found (a warning says why)",
+            "anyOf": [
+              {"type": "null"},
+              {
+                "type": "object",
+                "required": ["name", "path", "guid"],
+                "additionalProperties": false,
+                "properties": {"name": {"type": "string"}, "path": {"type": ["string", "null"]}, "guid": {"type": ["string", "null"]}}
+              }
+            ]
+          },
+          "shader_graph": {
+            "description": "the Shader Graph of a Shader Graph output, else null",
+            "anyOf": [
+              {"type": "null"},
+              {
+                "type": "object",
+                "required": ["name", "path", "guid"],
+                "additionalProperties": false,
+                "properties": {"name": {"type": ["string", "null"]}, "path": {"type": ["string", "null"]}, "guid": {"type": ["string", "null"]}}
+              }
+            ]
+          },
+          "effective": {
+            "type": "object",
+            "description": "render features after VFX Graph's own rules (sort Auto sorts Alpha and AlphaPremultiplied; soft particles need a transparent output; ...); null where the output type has no such feature",
+            "required": ["sorted", "indirect_draw", "shadow_casting", "soft_particles", "motion_vector", "alpha_clipping", "flipbook", "strips", "ray_traced"],
+            "additionalProperties": false,
+            "properties": {
+              "sorted": {"type": ["boolean", "null"]},
+              "indirect_draw": {"type": ["boolean", "null"]},
+              "shadow_casting": {"type": ["boolean", "null"]},
+              "soft_particles": {"type": ["boolean", "null"]},
+              "motion_vector": {"type": ["boolean", "null"]},
+              "alpha_clipping": {"type": ["boolean", "null"]},
+              "flipbook": {"type": ["boolean", "null"]},
+              "strips": {"type": ["boolean", "null"]},
+              "ray_traced": {"type": ["boolean", "null"]}
+            }
+          },
+          "render_settings": {
+            "type": "object",
+            "description": "the output's settings that the inspector or the graph shows in this configuration, by their VFX Graph names (sort, useSoftParticle, castShadows, cullMode, zWriteMode, zTestMode, useAlphaClipping, primitiveType, uvMode, ...), in declaration order; blendMode, shaderGraph, shader and materialSettings are reported elsewhere or are not values",
+            "additionalProperties": {"$ref": "#/$defs/value"}
+          }
+        }
+      }
+    },
+    "textures": {
+      "type": "array",
+      "description": "every texture the graph references (parameter values and input slots without a link) or a prefab override sets, once each, ordered by path then GUID",
+      "items": {
+        "type": "object",
+        "required": ["path", "guid", "name", "type", "dimension", "width", "height", "depth", "format", "texture_format", "srgb", "mip_maps",
+                     "mip_count", "compression", "crunched", "compressed_format", "max_size", "readable", "importer", "estimated_bytes", "used_by"],
+        "additionalProperties": false,
+        "properties": {
+          "path": {"type": "string"},
+          "guid": {"$ref": "#/$defs/guid"},
+          "name": {"type": "string"},
+          "type": {"type": "string", "description": "Texture2D, Texture2DArray, Texture3D, Cubemap, ..."},
+          "dimension": {"type": "string"},
+          "width": {"type": "integer", "minimum": 1},
+          "height": {"type": "integer", "minimum": 1},
+          "depth": {"type": "integer", "minimum": 1, "description": "slices of an array, depth of a 3D texture, cubemaps of a cubemap array, else 1"},
+          "format": {"type": "string", "description": "GraphicsFormat of the imported texture for build_target (R8G8B8A8_SRGB, RGBA_DXT5_SRGB, ...)"},
+          "texture_format": {"type": ["string", "null"], "description": "TextureFormat (RGBA32, DXT5, ...)"},
+          "srgb": {"type": "boolean"},
+          "mip_maps": {"type": "boolean"},
+          "mip_count": {"type": "integer", "minimum": 1},
+          "compression": {"type": ["string", "null"], "description": "TextureImporter compression (Uncompressed, Compressed, CompressedHQ, CompressedLQ); null without a TextureImporter"},
+          "crunched": {"type": ["boolean", "null"]},
+          "compressed_format": {"type": "boolean", "description": "the imported GraphicsFormat is a block-compressed format"},
+          "max_size": {"type": ["integer", "null"]},
+          "readable": {"type": "boolean", "description": "a readable texture keeps a CPU copy next to the GPU one"},
+          "importer": {"type": ["string", "null"]},
+          "estimated_bytes": {"type": ["integer", "null"], "minimum": 0, "description": "GPU size of all mip levels from size, mip count and format; null for a render texture"},
+          "used_by": {
+            "type": "array",
+            "minItems": 1,
+            "description": "describe slot addresses (c3.mainTexture), parameter ids (p0) and prefab:<override name>, sorted",
+            "items": {"type": "string"}
+          }
+        }
+      }
+    },
+    "exposed_properties": {
+      "type": "array",
+      "description": "the exposed input parameters, in describe order",
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "type", "category", "default", "overridden", "overrides"],
+        "additionalProperties": false,
+        "properties": {
+          "id": {"type": "string", "pattern": "^p[0-9]+$"},
+          "name": {"type": "string", "description": "the exposed name"},
+          "type": {"type": "string"},
+          "category": {"type": "string"},
+          "default": {"$ref": "#/$defs/value"},
+          "overridden": {"type": "boolean"},
+          "overrides": {
+            "type": "array",
+            "description": "the prefab's overridden property-sheet entries of this property (a struct is stored as <name>_<field>)",
+            "items": {
+              "type": "object",
+              "required": ["name", "sheet", "value"],
+              "additionalProperties": false,
+              "properties": {
+                "name": {"type": "string"},
+                "sheet": {"enum": ["m_Float", "m_Vector2f", "m_Vector3f", "m_Vector4f", "m_Uint", "m_Int", "m_Matrix4x4f", "m_AnimationCurve", "m_Gradient", "m_NamedObject", "m_Bool"]},
+                "value": {"$ref": "#/$defs/value"}
+              }
+            }
+          }
+        }
+      }
+    },
+    "hdr_colors": {
+      "type": "array",
+      "description": "colour values with a channel above 1: Color and Gradient parameters, unlinked Color and Gradient slots, Vector3/Vector4 slots or parameters whose name contains color or colour, and prefab overrides of such properties; parameters first, then slots in describe order, then overrides",
+      "items": {
+        "type": "object",
+        "required": ["source", "path", "name", "type", "rgba", "peak", "intensity"],
+        "additionalProperties": false,
+        "properties": {
+          "source": {"enum": ["parameter", "slot", "prefab_override"]},
+          "path": {"type": "string", "description": "parameter id, slot address or prefab:<name>; a gradient key adds .color_keys.<index>"},
+          "name": {"type": ["string", "null"], "description": "the exposed name of a parameter, else the slot name"},
+          "type": {"enum": ["Color", "Gradient", "Vector3", "Vector4"]},
+          "rgba": {
+            "type": "array",
+            "minItems": 4,
+            "maxItems": 4,
+            "items": {"type": ["number", "null"]},
+            "description": "alpha is null for a Vector3"
+          },
+          "peak": {"type": "number", "exclusiveMinimum": 1, "description": "the largest of r, g, b"},
+          "intensity": {"type": "number", "description": "log2(peak), the Intensity of Unity's HDR colour picker, rounded to 4 decimals"}
+        }
+      }
+    },
+    "totals": {
+      "type": "object",
+      "required": ["systems", "capacity", "outputs", "textures", "texture_bytes", "exposed_properties", "hdr_colors", "hdr_peak"],
+      "additionalProperties": false,
+      "properties": {
+        "systems": {"type": "integer", "minimum": 0},
+        "capacity": {"type": "integer", "minimum": 0, "description": "sum of the system capacities"},
+        "outputs": {"type": "integer", "minimum": 0},
+        "textures": {"type": "integer", "minimum": 0},
+        "texture_bytes": {"type": "integer", "minimum": 0, "description": "sum of estimated_bytes"},
+        "exposed_properties": {"type": "integer", "minimum": 0},
+        "hdr_colors": {"type": "integer", "minimum": 0},
+        "hdr_peak": {"type": ["number", "null"], "description": "the largest peak of hdr_colors, null when there is none"}
+      }
+    }
+  },
+  "$defs": {
+    "guid": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "contextId": {"type": "string", "pattern": "^c[0-9]+$"},
+    "value": {
+      "description": "a value as describe prints it: number, boolean, string (enums by name), list (vectors, colours), object (structs, gradients, curves, asset references) or null",
+      "type": ["number", "integer", "boolean", "string", "array", "object", "null"]
+    }
+  }
+}

@@ -1,0 +1,199 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Cuvara/UnityVFX/Schemas~/vfx-describe.schema.json",
+  "title": "com.cuvara.vfx describe result",
+  "description": "Result of the describe verb (VfxCli.Run(\"describe\", {\"asset\": ...})) with ok true: the envelope plus the graph. Ids are stable for an unchanged asset: contexts c<n>, their blocks c<n>.b<m>, operators o<n>, parameters p<n>, other graph models x<n>, systems s<n>, all in the serialised order of the graph's children. A slot is addressed as <node id>.<slot path>; the path joins slot names with dots, and a slot without a name is written #<index>.",
+  "type": "object",
+  "required": ["ok", "verb", "errors", "warnings", "schema", "asset", "asset_kind", "vfx_graph", "graph_version", "resource_version",
+               "contexts", "operators", "parameters", "other_models", "links", "flow_links", "systems", "sticky_notes", "groups"],
+  "properties": {
+    "ok": {"const": true},
+    "verb": {"const": "describe"},
+    "errors": {"type": "array", "maxItems": 0},
+    "warnings": {"type": "array", "items": {"type": "string"}},
+    "schema": {"const": "cuvara.vfx-describe/1"},
+    "asset": {"$ref": "#/$defs/assetRef"},
+    "asset_kind": {"type": "string", "description": "vfx for a VisualEffectAsset, else the subgraph type name"},
+    "vfx_graph": {"type": ["string", "null"], "description": "installed com.unity.visualeffectgraph version"},
+    "graph_version": {"type": "integer"},
+    "resource_version": {"type": "integer", "description": "m_ResourceVersion of the graph; below VisualEffectResource.CurrentVersion VFX Graph upgrades the graph at the next compile (describe then warns)"},
+    "contexts": {"type": "array", "items": {"$ref": "#/$defs/context"}},
+    "operators": {"type": "array", "items": {"$ref": "#/$defs/operator"}},
+    "parameters": {"type": "array", "items": {"$ref": "#/$defs/parameter"}},
+    "other_models": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "type", "name"],
+        "properties": {"id": {"type": "string", "pattern": "^x[0-9]+$"}, "type": {"type": "string"}, "name": {"type": ["string", "null"]}}
+      }
+    },
+    "links": {
+      "type": "array",
+      "description": "slot links, sorted by to, then from",
+      "items": {
+        "type": "object",
+        "required": ["from", "to"],
+        "additionalProperties": false,
+        "properties": {"from": {"$ref": "#/$defs/slotAddress"}, "to": {"$ref": "#/$defs/slotAddress"}}
+      }
+    },
+    "flow_links": {
+      "type": "array",
+      "description": "context flow links, sorted by to, to_slot, from, from_slot",
+      "items": {
+        "type": "object",
+        "required": ["from", "from_slot", "to", "to_slot"],
+        "additionalProperties": false,
+        "properties": {
+          "from": {"$ref": "#/$defs/contextId"},
+          "from_slot": {"type": "integer", "minimum": 0},
+          "to": {"$ref": "#/$defs/contextId"},
+          "to_slot": {"type": "integer", "minimum": 0}
+        }
+      }
+    },
+    "systems": {"type": "array", "items": {"$ref": "#/$defs/system"}},
+    "sticky_notes": {
+      "type": "array",
+      "items": {"type": "object", "required": ["title", "contents"], "properties": {"title": {"type": "string"}, "contents": {"type": "string"}}}
+    },
+    "groups": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["title", "members", "sticky_notes"],
+        "properties": {
+          "title": {"type": "string"},
+          "members": {"type": "array", "items": {"type": "string"}},
+          "sticky_notes": {"type": "integer", "minimum": 0}
+        }
+      }
+    }
+  },
+  "$defs": {
+    "contextId": {"type": "string", "pattern": "^c[0-9]+$"},
+    "nodeId": {"type": "string", "pattern": "^(c[0-9]+(\\.b[0-9]+)?|o[0-9]+|p[0-9]+|x[0-9]+)$"},
+    "slotAddress": {"type": "string", "pattern": "^(c[0-9]+(\\.b[0-9]+)?|o[0-9]+|p[0-9]+|x[0-9]+)\\..+$"},
+    "assetRef": {
+      "type": "object",
+      "description": "a project asset: project-relative path and GUID (file_id for a sub-asset); path is null for an object that is not an asset",
+      "required": ["path", "guid"],
+      "properties": {
+        "name": {"type": "string"},
+        "type": {"type": "string"},
+        "path": {"type": ["string", "null"]},
+        "guid": {"type": ["string", "null"]},
+        "file_id": {"type": "integer"}
+      }
+    },
+    "value": {
+      "description": "a plain value: number, string (enums by name), bool, null, array (vectors, colours as [r, g, b, a]), object (structs by field, gradients, curves, asset references)"
+    },
+    "setting": {
+      "type": "object",
+      "required": ["name", "type", "value"],
+      "additionalProperties": false,
+      "properties": {"name": {"type": "string"}, "type": {"type": "string"}, "value": {"$ref": "#/$defs/value"}}
+    },
+    "settings": {"type": "array", "items": {"$ref": "#/$defs/setting"}},
+    "inputSlot": {
+      "type": "object",
+      "required": ["name", "ref", "type", "linked", "value"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {"type": "string"},
+        "ref": {"type": "string", "description": "the slot's address component: its name, or #<index> when it has none"},
+        "type": {"type": "string"},
+        "linked": {"type": "boolean", "description": "the slot or one of its children has a link"},
+        "space": {"type": "string"},
+        "value": {"$ref": "#/$defs/value"}
+      }
+    },
+    "outputSlot": {
+      "type": "object",
+      "required": ["name", "ref", "type"],
+      "additionalProperties": false,
+      "properties": {"name": {"type": "string"}, "ref": {"type": "string"}, "type": {"type": "string"}}
+    },
+    "block": {
+      "type": "object",
+      "required": ["id", "type", "name", "enabled", "settings", "inputs", "outputs"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {"type": "string", "pattern": "^c[0-9]+\\.b[0-9]+$"},
+        "type": {"type": "string"},
+        "name": {"type": "string"},
+        "enabled": {"type": "boolean"},
+        "settings": {"$ref": "#/$defs/settings"},
+        "inputs": {"type": "array", "items": {"$ref": "#/$defs/inputSlot"}},
+        "outputs": {"type": "array", "items": {"$ref": "#/$defs/outputSlot"}}
+      }
+    },
+    "context": {
+      "type": "object",
+      "required": ["id", "type", "name", "label", "context_type", "input_data", "output_data", "system", "settings", "inputs", "outputs", "blocks"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {"$ref": "#/$defs/contextId"},
+        "type": {"type": "string"},
+        "name": {"type": "string"},
+        "label": {"type": "string"},
+        "context_type": {"type": "string"},
+        "input_data": {"type": "string"},
+        "output_data": {"type": "string"},
+        "system": {"type": ["string", "null"], "pattern": "^s[0-9]+$"},
+        "settings": {"$ref": "#/$defs/settings"},
+        "inputs": {"type": "array", "items": {"$ref": "#/$defs/inputSlot"}},
+        "outputs": {"type": "array", "items": {"$ref": "#/$defs/outputSlot"}},
+        "blocks": {"type": "array", "items": {"$ref": "#/$defs/block"}}
+      }
+    },
+    "operator": {
+      "type": "object",
+      "required": ["id", "type", "name", "settings"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {"type": "string", "pattern": "^o[0-9]+$"},
+        "type": {"type": "string"},
+        "name": {"type": "string"},
+        "settings": {"$ref": "#/$defs/settings"},
+        "inputs": {"type": "array", "items": {"$ref": "#/$defs/inputSlot"}},
+        "outputs": {"type": "array", "items": {"$ref": "#/$defs/outputSlot"}}
+      }
+    },
+    "parameter": {
+      "type": "object",
+      "required": ["id", "type", "exposed_name", "exposed", "is_output", "category", "value", "node_count", "settings", "outputs"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {"type": "string", "pattern": "^p[0-9]+$"},
+        "type": {"type": ["string", "null"]},
+        "exposed_name": {"type": "string"},
+        "exposed": {"type": "boolean"},
+        "is_output": {"type": "boolean"},
+        "category": {"type": "string"},
+        "value": {"$ref": "#/$defs/value"},
+        "node_count": {"type": "integer", "minimum": 0},
+        "settings": {"$ref": "#/$defs/settings"},
+        "tooltip": {"type": "string", "minLength": 1, "description": "present only when the parameter has a tooltip"},
+        "inputs": {"type": "array", "items": {"$ref": "#/$defs/inputSlot"}},
+        "outputs": {"type": "array", "items": {"$ref": "#/$defs/outputSlot"}}
+      }
+    },
+    "system": {
+      "type": "object",
+      "required": ["id", "name", "data_type", "data_class", "contexts", "capacity", "settings"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {"type": "string", "pattern": "^s[0-9]+$"},
+        "name": {"type": "string"},
+        "data_type": {"type": "string", "description": "VFXDataType: SpawnEvent, Particle, ParticleStrip, Mesh, ..."},
+        "data_class": {"type": "string"},
+        "contexts": {"type": "array", "items": {"$ref": "#/$defs/contextId"}, "minItems": 1},
+        "capacity": {"type": ["integer", "null"], "minimum": 0, "description": "particle capacity; null for a spawner system"},
+        "settings": {"$ref": "#/$defs/settings"}
+      }
+    }
+  }
+}

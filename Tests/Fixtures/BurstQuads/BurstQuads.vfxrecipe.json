@@ -1,0 +1,40 @@
+{
+  "schema": "cuvara.vfx-recipe/1",
+  "id": "burst-quads",
+  "vfx_graph": "17.6",
+  "meta": {
+    "duration_seconds": 1.0,
+    "looping": false,
+    "tags": ["fixture"],
+    "phases": [
+      {"name": "burst", "seconds": 0.1},
+      {"name": "fade", "seconds": 0.9}
+    ]
+  },
+  "ops": [
+    {"op": "comment", "title": "BurstQuads", "text": "Test fixture of com.cuvara.vfx: one burst of additive quads with a colour over life."},
+    {"op": "add_parameter", "id": "p_tint", "name": "Tint", "type": "Color", "value": [4.0, 2.0, 0.5, 1.0], "exposed": true},
+    {"op": "add_context", "id": "spawn", "type": "VFXBasicSpawner"},
+    {"op": "add_block", "id": "burst", "context": "spawn", "type": "VFXSpawnerBurst", "variant": "Spawn/Single Burst", "slots": {"Count": 24, "Delay": 0.0}},
+    {"op": "add_context", "id": "init", "type": "VFXBasicInitialize", "variant": "Context/#0Common/Initialize Particle",
+     "settings": {"capacity": 32, "boundsMode": "Manual"}, "slots": {"bounds": {"center": [0.0, 1.0, 0.0], "size": [4.0, 4.0, 4.0]}}},
+    {"op": "add_block", "id": "lifetime", "context": "init", "type": "SetAttribute", "settings": {"attribute": "lifetime", "Random": "Uniform"}, "slots": {"A": 0.6, "B": 0.9}},
+    {"op": "add_block", "id": "position", "context": "init", "type": "SetAttribute", "settings": {"attribute": "position"}, "slots": {"_Position": [0.0, 1.0, 0.0]}},
+    {"op": "add_block", "id": "velocity", "context": "init", "type": "SetAttribute", "settings": {"attribute": "velocity", "Random": "PerComponent"}, "slots": {"A": [-1.5, 0.5, -1.5], "B": [1.5, 2.5, 1.5]}},
+    {"op": "add_block", "id": "size", "context": "init", "type": "SetAttribute", "settings": {"attribute": "size"}, "slots": {"_Size": 0.3}},
+    {"op": "add_context", "id": "update", "type": "VFXBasicUpdate"},
+    {"op": "add_context", "id": "output", "type": "VFXPlanarPrimitiveOutput", "variant": "Context/#2Output Basic/Output Particle|Unlit|Quad"},
+    {"op": "add_block", "id": "orient", "context": "output", "type": "Orient", "settings": {"mode": "FaceCameraPlane"}},
+    {"op": "add_block", "id": "tint", "context": "output", "type": "SetAttribute", "settings": {"attribute": "color"}},
+    {"op": "add_block", "id": "color_over_life", "context": "output", "type": "AttributeFromCurve",
+     "settings": {"attribute": "color", "SampleMode": "OverLife", "Composition": "Multiply", "ColorMode": "ColorAndAlpha"},
+     "slots": {"Color": {"mode": "Blend",
+                         "color_keys": [{"t": 0.0, "color": [1.0, 1.0, 1.0]}, {"t": 0.5, "color": [1.0, 0.6, 0.3]}, {"t": 1.0, "color": [0.6, 0.1, 0.05]}],
+                         "alpha_keys": [{"t": 0.0, "alpha": 1.0}, {"t": 0.7, "alpha": 0.8}, {"t": 1.0, "alpha": 0.0}]}}},
+    {"op": "set_output", "node": "output", "blend_mode": "Additive"},
+    {"op": "link_flow", "from": "spawn", "to": "init"},
+    {"op": "link_flow", "from": "init", "to": "update"},
+    {"op": "link_flow", "from": "update", "to": "output"},
+    {"op": "link_slots", "from": "p_tint.out", "to": "tint._Color"}
+  ]
+}
