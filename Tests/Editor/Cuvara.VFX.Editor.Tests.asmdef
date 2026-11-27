@@ -4,6 +4,7 @@
   "references": [
     "Cuvara.VFX",
     "Cuvara.VFX.Editor",
+    "Cuvara.VFX.Tests",
     "Unity.Testing.VisualEffectGraph.Editor",
     "UnityEngine.TestRunner",
     "UnityEditor.TestRunner"

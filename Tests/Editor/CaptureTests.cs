@@ -5,6 +5,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using Cuvara.VFX.Editor.Capture;
+using Cuvara.VFX.Tests;
 using NUnit.Framework;
 using UnityEditor;
 using UnityEngine;
@@ -65,6 +66,7 @@ namespace Cuvara.VFX.Editor.Tests
         }
 
         [UnityTest]
+        [Category(GraphicsRequirement.Category)]
         public IEnumerator SameSeedTwice_GivesTheSamePeak_NoMinusOne_AndAllFiles()
         {
             // The capture simulates on the GPU and reads the render target back: ignored, with the
@@ -111,6 +113,7 @@ namespace Cuvara.VFX.Editor.Tests
         }
 
         [UnityTest]
+        [Category(GraphicsRequirement.Category)]
         public IEnumerator AnotherLoadedScene_DoesNotChangeTheCapture_AndIsRestoredAfterwards()
         {
             GraphicsRequirement.IgnoreUnlessGpuSimulationRuns();

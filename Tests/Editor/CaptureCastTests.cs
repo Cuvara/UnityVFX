@@ -5,6 +5,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using Cuvara.VFX.Editor.Capture;
+using Cuvara.VFX.Tests;
 using NUnit.Framework;
 using UnityEditor;
 using UnityEngine;
@@ -109,6 +110,7 @@ namespace Cuvara.VFX.Editor.Tests
         // ------------------------------------------------------------------ capture (play mode)
 
         [UnityTest]
+        [Category(GraphicsRequirement.Category)]
         public IEnumerator StandInWithThreeTargets_BindsTheChain_TwiceTheSame_AndAMissingPrefabPlacesThePlaceholder()
         {
             GraphicsRequirement.IgnoreUnlessGpuSimulationRuns();
