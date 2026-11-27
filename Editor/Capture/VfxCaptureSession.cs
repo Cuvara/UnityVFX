@@ -101,6 +101,8 @@ namespace Cuvara.VFX.Editor.Capture
         bool m_HasBounds;
         Bounds m_Bounds;
         string m_VfxGraphVersion;
+        JsonObject m_Characters;
+        List<object> m_Binders = new List<object>();
 
         VfxCaptureSession(VfxCaptureRequest request)
         {
@@ -198,6 +200,18 @@ namespace Cuvara.VFX.Editor.Capture
             m_Effects = m_EffectRoot.GetComponentsInChildren<VisualEffect>(true);
             if (m_Effects.Length == 0)
                 throw new InvalidOperationException($"'{m_Request.Effect}' has no VisualEffect");
+
+            // Characters and binding (optional): placed and bound before the effect's first step, so a
+            // spawn at t = 0 reads the bound positions.
+            var cast = VfxCaptureCast.Place(m_Request, m_Stage, m_EffectRoot, m_Result);
+            if (cast != null)
+            {
+                var outside = cast.CountOutsideFrame(m_Stage.Camera);
+                if (outside > 0)
+                    m_Result.Warning($"{outside} character(s) are not fully inside the {m_Request.Camera} frame (stats.json characters[].in_frame)");
+                m_Characters = cast.CharactersJson(m_Stage.Camera);
+                m_Binders = cast.BindersJson();
+            }
             foreach (var effect in m_Effects)
             {
                 effect.resetSeedOnPlay = false;
@@ -551,6 +565,8 @@ namespace Cuvara.VFX.Editor.Capture
                 { "resolution", new List<object> { (long)m_Request.Width, (long)m_Request.Height } },
                 { "probe_interval", Math.Round(m_ProbeFrames * m_Request.DeltaTime, 6) },
                 { "settle_frames", (long)m_Request.SettleFrames },
+                { "characters", m_Characters },
+                { "binders", m_Binders },
             };
         }
 

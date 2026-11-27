@@ -25,13 +25,16 @@ interface"). It is printed on stdout (indented JSON) and, with --out, written to
 same text, so two runs on the same input give the same bytes. Which runner was used (editor PID,
 batch exit code, time, peak memory) goes to stderr with the rest of the progress.
 
-Path arguments (the keys recipe, asset, effect, source, target, out, file and texture, at any depth of
-the arguments) may be written as DESIGN.md writes them, relative to the current directory. A relative
-path that does not start with Assets/ or Packages/ is resolved against the current directory; a path
-inside the repository is then passed as Packages/<package name>/<path in the repository>, a path inside
-Sandbox~/Assets or Sandbox~/Packages as Assets/... or Packages/..., and any other path (and every `out`
-path) as an absolute path. An absolute path inside Sandbox~/ is mapped the same way, because Unity sees
-the project through the open path, not through Sandbox~. Each rewrite is logged on stderr.
+Path arguments (the keys recipe, asset, effect, source, target, out, file, texture and character, at
+any depth of the arguments) may be written as DESIGN.md writes them, relative to the current directory.
+A relative path that does not start with Assets/ or Packages/ is resolved against the current directory;
+a path inside Samples~/Showcase is then passed as Assets/Showcase/... (the Sandbox sees the sample
+through a link there), any other path inside the repository as Packages/<package name>/<path in the
+repository>, a path inside Sandbox~/Assets or Sandbox~/Packages as Assets/... or Packages/..., and any
+other path (and every `out` path) as an absolute path. An absolute path inside Sandbox~/ or
+Samples~/Showcase is mapped the same way, because Unity sees the project through the open path, not
+through Sandbox~. The keyword `placeholder` of `character` is not a path and is passed unchanged. Each
+rewrite is logged on stderr.
 
 A verb that runs across play mode (capture) answers through the editor with `"pending": true` and a
 `result_file`; vfxcli.py waits for that file (the editor writes it once it is back in edit mode) and
@@ -330,11 +333,14 @@ def read_verb_args(options):
     return json.dumps(value, ensure_ascii=False)
 
 
-PATH_KEYS = ("recipe", "asset", "effect", "source", "target", "out", "file", "texture")
+PATH_KEYS = ("recipe", "asset", "effect", "source", "target", "out", "file", "texture", "character")
 """Argument keys whose string values are paths; rewritten by `resolve_path_args` at any depth."""
 
 ABSOLUTE_KEYS = ("out",)
 """Path keys the verb writes with plain file IO (a folder for results): always passed as absolute paths."""
+
+KEYWORD_VALUES = {"character": ("placeholder",)}
+"""Values of a path key that are keywords, not paths: passed through unchanged."""
 
 
 def package_name(root):
@@ -350,6 +356,8 @@ def resolve_path(key, value, root, cwd):
     """The form of one path argument the verbs accept (see the module docstring)."""
     if not isinstance(value, str) or not value.strip():
         return value
+    if value.strip() in KEYWORD_VALUES.get(key, ()):
+        return value
     text = value.strip().replace("\\", "/")
     project_form = text.startswith("Assets/") or text == "Assets" or text.startswith("Packages/")
     if project_form and not os.path.isabs(text):
@@ -362,6 +370,9 @@ def resolve_path(key, value, root, cwd):
         if key not in ABSOLUTE_KEYS and (relative.startswith("Assets/") or relative == "Assets" or relative.startswith("Packages/")):
             return relative
         return full.replace("\\", "/")
+    showcase = sp.showcase_project_path(full, root) if key not in ABSOLUTE_KEYS else None
+    if showcase is not None:
+        return showcase
     if rooted:
         return value
     if key not in ABSOLUTE_KEYS and sp.is_inside(full, root):

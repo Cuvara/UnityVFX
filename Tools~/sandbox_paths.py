@@ -53,6 +53,19 @@ def showcase_source(root=None):
     return os.path.join(root or repo_root(), "Samples~", "Showcase")
 
 
+SHOWCASE_PROJECT_PATH = "Assets/Showcase"
+"""Where the Sandbox project sees Samples~/Showcase (through the link showcase_link)."""
+
+
+def showcase_project_path(path, root=None):
+    """The Sandbox project path (Assets/Showcase/...) of a path inside Samples~/Showcase, else None."""
+    source = showcase_source(root)
+    if not is_inside(path, source):
+        return None
+    relative = os.path.relpath(path, source).replace("\\", "/")
+    return SHOWCASE_PROJECT_PATH + ("" if relative == "." else "/" + relative)
+
+
 def legacy_package_link(root=None):
     """Link of the first layout (Sandbox~/Packages/com.cuvara.vfx -> repository root): a cycle; removed on sight."""
     return os.path.join(sandbox_dir(root), "Packages", PACKAGE_NAME)

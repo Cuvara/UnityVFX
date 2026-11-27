@@ -16,6 +16,10 @@ namespace Cuvara.VFX
     /// <see cref="Get"/> returns a new copy of <c>day</c>, <c>dusk</c> (the default) or <c>night</c>, which
     /// a caller may change without changing the preset.</para>
     /// <para>Colours are linear. Light intensities are URP directional light intensities.</para>
+    /// <para>Every key light heading lies between -90 and 0 degrees, so the key travels towards +Z and
+    /// -X and lights the front of the wall behind the effect in every camera preset (it faces -Z for
+    /// <c>gameplay</c> and <c>close</c>, +X for <c>side</c>). The night key had heading 30 at first and
+    /// left the <c>side</c> backdrop near black (Documentation~/AUTHORING.md, Pitfalls).</para>
     /// </remarks>
     [Serializable]
     public sealed class VfxLightingPreset
@@ -108,7 +112,7 @@ namespace Cuvara.VFX
                     return new VfxLightingPreset
                     {
                         name = "night",
-                        keyColor = new Color(0.55f, 0.65f, 1.00f), keyIntensity = 0.5f, keyAngles = new Vector2(40f, 30f), keyShadowStrength = 0.6f,
+                        keyColor = new Color(0.55f, 0.65f, 1.00f), keyIntensity = 0.5f, keyAngles = new Vector2(40f, -45f), keyShadowStrength = 0.6f,
                         fillColor = new Color(0.30f, 0.35f, 0.50f), fillIntensity = 0.10f, fillAngles = new Vector2(20f, -150f),
                         ambientSky = new Color(0.040f, 0.050f, 0.090f), ambientEquator = new Color(0.030f, 0.035f, 0.050f), ambientGround = new Color(0.015f, 0.015f, 0.020f),
                         background = new Color(0.020f, 0.025f, 0.040f),

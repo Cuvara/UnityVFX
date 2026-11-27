@@ -737,8 +737,10 @@ Python `jsonschema` package.
 ## Capture an effect
 
 `capture` plays an effect in a neutral stage made from code, with a fixed seed and time step, and
-writes one PNG per sample, `contact-sheet.png` and `stats.json`. Inputs, presets, outputs,
-determinism and limits: [CAPTURE.md](CAPTURE.md).
+writes one PNG per sample, `contact-sheet.png` and `stats.json`. The stage is the grid ground and
+wall of `Library/Grid` with the Showcase's lighting and camera code; `character` and
+`target_count` add a caster and targets as a scale reference and bind a chain-lightning effect to
+them. Inputs, presets, stage, characters, outputs, determinism and limits: [CAPTURE.md](CAPTURE.md).
 
 ```sh
 python Tools~/vfxcli.py capture --json '{"effect": "Tests/Fixtures/BurstQuads/BurstQuads.vfx", "seed": 1234}'
@@ -1174,10 +1176,48 @@ Each entry is a verified failure: symptom, cause, fix, file.
   ground therefore has a linear albedo of about 0.073 and its backdrop about 0.106, not 0.30 and
   0.36.
 - **Fix:** none needed for the look (the presets were tuned on what renders), but read every
-  material colour as sRGB. The grid materials keep the capture stage's property values (ground
-  0.30, backdrop 0.36), so the grid renders with the same albedo as the present capture stage.
+  material colour as sRGB. The grid materials keep the first capture stage's property values (ground
+  0.30, backdrop 0.36). Since 2026-11-27 the capture stage uses these materials itself;
+  `VfxCaptureStage.GroundAlbedo` and `BackdropAlbedo`, which documented the values as linear, are
+  removed.
 - **File:** `Library/Grid/VfxGridGround.mat`, `Library/Grid/VfxGridBackdrop.mat`,
-  `Editor/Capture/VfxCaptureStage.cs` (`GroundAlbedo`, `BackdropAlbedo`).
+  `Editor/Capture/VfxCaptureStage.cs` (`GroundMaterialPath`, `BackdropMaterialPath`).
+
+### A brown band at the top of every contact sheet cell
+
+- **Symptom:** every cell of a capture contact sheet (BurstQuads, `gameplay`, `dusk`) had a flat
+  brown band across the top, 28 of 360 pixels high, over a dark ground with no visible surface; a
+  reviewer could take it for a rendering defect, and the ground gave no scale
+  (`Sandbox~/Captures/pkg-showcase/capture-stage/before/gameplay-dusk`, gitignored).
+- **Cause:** stage geometry and light. The `gameplay` camera (45 degrees down, 10 m, field of view
+  40 degrees) sees down to 25 degrees below the horizon at the top of its frame; the backdrop stood
+  8 m behind the origin, so the frame showed only its lowest 1.04 m, 8 % of the frame height (28
+  pixels at 360). The backdrop and the ground were plain URP Lit grey with no texture, so the strip
+  had no edge or line to read as a wall. The dusk key light (orange, 20 degrees up, heading -60)
+  lights a wall facing the camera at a cosine of about 0.47 and the ground at 0.34, so the strip was
+  brighter and more orange than the ground: a band.
+- **Fix:** the stage uses the grid materials of `Library/Grid` for the ground and the backdrop, so the
+  1 m and 5 m lines run across the ground and continue up the wall, and the backdrop stands 6 m
+  behind the origin: the `gameplay` frame shows the wall's foot over its top sixth with the corner
+  line and the grid on it, and reads as a floor with a wall behind it. The ground is 80 m and the wall
+  80 by 20 m, so no camera preset sees past an edge. No camera preset value changed. Checked on the
+  contact sheets of BurstQuads in day, dusk and night (`gameplay`) and dusk (`close`, `side`).
+- **File:** `Editor/Capture/VfxCaptureStage.cs` (`BackdropDistance`, `GroundSize`, the materials).
+
+### The night backdrop of the `side` camera was black
+
+- **Symptom:** with the `night` preset and the `side` camera the wall behind the effect rendered near
+  black (grid stage, empty stage at 1.00 s: mean luminance 0.0013, the wall's grid not visible), in
+  the capture stage and in the shared-stage evidence (`night-side.png`).
+- **Cause:** the backdrop faces the camera: -Z for `gameplay` and `close`, +X for `side`. A key light
+  lights it only when it travels towards +Z (front of the -Z wall) and -X (front of the +X wall). The
+  day (heading -30) and dusk (heading -60) keys do both; the night key had heading 30, travelled
+  towards +X, and lit the `side` wall from behind, which left the ambient (0.03 linear) and the fill
+  (0.10).
+- **Fix:** the night key's heading is -45 degrees (`keyAngles` (40, -45)); it now lights the front of
+  the wall in every camera preset, and the night `side` frame shows the wall's grid, dim (mean
+  luminance of the empty stage 0.0029). The Showcase uses the same preset.
+- **File:** `Runtime/Presets/VfxLightingPreset.cs`.
 
 ### Dark grid lines vanished at night
 
@@ -1261,7 +1301,7 @@ Each entry is a verified failure: symptom, cause, fix, file.
 ## Differences from DESIGN.md
 
 Every place where the built verbs, formats, schemas or layout differ from
-[DESIGN.md](DESIGN.md), checked against the code on 2026-11-13 and updated on 2026-11-27 (twice). These
+[DESIGN.md](DESIGN.md), checked against the code on 2026-11-13 and updated on 2026-11-27 (three times). These
 differences are not written into DESIGN.md; the run lead decides whether the contract adopts
 them. Additions that keep every DESIGN field and behaviour are listed too, because rpg-factory
 scripts read these formats.
@@ -1444,9 +1484,23 @@ scripts read these formats.
     `settle_frames`. Proof: `Editor/Capture/VfxCaptureSession.cs`, CAPTURE.md "Determinism".
 42. `duration_seconds` and `bounds` may be null (an effect that did not end by `max_seconds`, or
     never had a particle). Proof: `Schemas~/vfx-capture.schema.json`.
+43. The capture stage's ground and backdrop are the grid materials of `Library/Grid` (an 80 m ground,
+    a wall 80 by 20 m standing 6 m behind the origin as seen from the camera), and the stage lights
+    and frames through `VfxLightingRig.Apply` and `VfxCameraRig.Place`, the code of the Showcase.
+    DESIGN names a backdrop and a ground only. Proof: `Editor/Capture/VfxCaptureStage.cs`,
+    CAPTURE.md "Stage".
+44. More optional inputs for characters: `character` (a prefab path or `placeholder`),
+    `target_count`, `target_spacing`, `source_socket`, `target_socket`; they place a caster and
+    targets in a lane and bind every `ChainLightningBinder` of the effect (a `.vfx` that exposes the
+    binder's properties gets one). A prefab path that does not exist places the placeholder with a
+    warning. Proof: `Editor/Capture/VfxCaptureRequest.cs` (`ParseCharacters`),
+    `Editor/Capture/VfxCaptureCast.cs`, CAPTURE.md "Characters and targets".
+45. `stats.json` has two more optional fields, `characters` (null without characters) and
+    `binders` (empty without one); they are not required by the schema, so files written before
+    them stay valid. Proof: `Schemas~/vfx-capture.schema.json`, `Editor/Capture/VfxCaptureSession.cs`.
 
 ### CI
 
-43. The game-ci jobs open a copy of `Sandbox~` at `sandbox-home/Sandbox` next to the checkout at
+46. The game-ci jobs open a copy of `Sandbox~` at `sandbox-home/Sandbox` next to the checkout at
     `sandbox-home/package`, not `Sandbox~` itself (Unity 6000.6 and `file:../../package`). Proof:
     `.github/workflows/ci.yml`, `.github/scripts/ci_sandbox.py`, CI.md.

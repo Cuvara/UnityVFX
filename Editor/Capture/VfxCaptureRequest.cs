@@ -49,6 +49,21 @@ namespace Cuvara.VFX.Editor.Capture
         /// <summary>Number of samples when <c>times</c> is not given.</summary>
         public const int DefaultSampleCount = 8;
 
+        /// <summary>The <c>character</c> value that places the code-built <see cref="VfxMannequin"/>.</summary>
+        public const string Placeholder = "placeholder";
+
+        /// <summary>Default distance between two characters of the lane, in metres.</summary>
+        public const double DefaultTargetSpacing = 3.5;
+
+        /// <summary>Smallest and largest accepted <c>target_spacing</c>, in metres.</summary>
+        public const double MinTargetSpacing = 0.5, MaxTargetSpacing = 10.0;
+
+        /// <summary>Default socket of the caster that is the binders' source.</summary>
+        public const string DefaultSourceSocket = VfxSocket.HandRight;
+
+        /// <summary>Default socket of each target that is a binder target.</summary>
+        public const string DefaultTargetSocket = VfxSocket.Chest;
+
         /// <summary>Project path of the effect (<c>Assets/...</c> or <c>Packages/...</c>).</summary>
         public string Effect;
 
@@ -96,6 +111,30 @@ namespace Cuvara.VFX.Editor.Capture
 
         /// <summary>SHA-256 of that recipe file, or null.</summary>
         public string RecipeSha256;
+
+        /// <summary>
+        /// The <c>character</c> argument: null (no character), <see cref="Placeholder"/>, or the project
+        /// path of a prefab as requested (it may not exist; see <see cref="CharacterPlaced"/>).
+        /// </summary>
+        public string Character;
+
+        /// <summary>What is placed: <see cref="Placeholder"/> or the project path of a prefab that exists; null without a character.</summary>
+        public string CharacterPlaced;
+
+        /// <summary>The warning when a requested prefab does not exist and the placeholder is placed instead, or null.</summary>
+        public string CharacterFallback;
+
+        /// <summary>Number of target characters in the lane, 0 to <see cref="ChainLightningBinder.MaxTargets"/>.</summary>
+        public int TargetCount;
+
+        /// <summary>Distance between two characters of the lane, in metres.</summary>
+        public double TargetSpacing = DefaultTargetSpacing;
+
+        /// <summary>Name of the caster's <see cref="VfxSocket"/> that is the binders' source.</summary>
+        public string SourceSocket = DefaultSourceSocket;
+
+        /// <summary>Name of each target's <see cref="VfxSocket"/> that is a binder target.</summary>
+        public string TargetSocket = DefaultTargetSocket;
 
         /// <summary>The sample frame of a time: <c>round(t / delta_time)</c>.</summary>
         public int FrameOf(double seconds) => (int)Math.Round(seconds / DeltaTime, MidpointRounding.AwayFromZero);
@@ -244,6 +283,8 @@ namespace Cuvara.VFX.Editor.Capture
                     result.Error("two times fall on the same frame at this delta_time; space them further apart");
             }
 
+            ParseCharacters(args, request, result);
+
             var outArgument = args.GetString("out");
             request.Out = string.IsNullOrEmpty(outArgument) ? DefaultOut(request) : Path.GetFullPath(outArgument);
             request.Out = request.Out.Replace('\\', '/').TrimEnd('/');
@@ -251,6 +292,75 @@ namespace Cuvara.VFX.Editor.Capture
                 result.Error($"out '{request.Out}' is inside the project's Assets or a package: Unity would import the PNGs; use a folder such as <project>/Captures");
 
             return result.Ok ? request : null;
+        }
+
+        /// <summary>
+        /// Reads <c>character</c>, <c>target_count</c>, <c>target_spacing</c>, <c>source_socket</c> and
+        /// <c>target_socket</c> (Documentation~/CAPTURE.md, "Characters and targets"). A <c>.prefab</c> path
+        /// that does not exist is not an error: the placeholder is placed and a warning says so.
+        /// </summary>
+        static void ParseCharacters(VfxArgs args, VfxCaptureRequest request, VfxResult result)
+        {
+            var characterArgument = args.GetString("character");
+            request.TargetCount = (int)args.GetLong("target_count", 0);
+            request.TargetSpacing = args.GetDouble("target_spacing", DefaultTargetSpacing);
+            var sourceSocket = args.GetString("source_socket");
+            var targetSocket = args.GetString("target_socket");
+            request.SourceSocket = sourceSocket ?? DefaultSourceSocket;
+            request.TargetSocket = targetSocket ?? DefaultTargetSocket;
+
+            if (request.TargetCount < 0 || request.TargetCount > ChainLightningBinder.MaxTargets)
+                result.Error($"argument 'target_count' must be between 0 and {ChainLightningBinder.MaxTargets} (ChainLightningBinder.MaxTargets)");
+            if (!(request.TargetSpacing >= MinTargetSpacing && request.TargetSpacing <= MaxTargetSpacing))
+                result.Error($"argument 'target_spacing' must be between {MinTargetSpacing.ToString(CultureInfo.InvariantCulture)} and {MaxTargetSpacing.ToString(CultureInfo.InvariantCulture)} m");
+            if (string.IsNullOrWhiteSpace(request.SourceSocket))
+                result.Error("argument 'source_socket' must be a socket name such as hand_r");
+            if (string.IsNullOrWhiteSpace(request.TargetSocket))
+                result.Error("argument 'target_socket' must be a socket name such as chest");
+
+            if (string.IsNullOrWhiteSpace(characterArgument))
+            {
+                if (characterArgument != null)
+                    result.Error($"argument 'character' must be a .prefab path or \"{Placeholder}\"");
+                var used = new List<string>();
+                if (args.Has("target_count")) used.Add("target_count");
+                if (args.Has("target_spacing")) used.Add("target_spacing");
+                if (sourceSocket != null) used.Add("source_socket");
+                if (targetSocket != null) used.Add("target_socket");
+                if (used.Count > 0)
+                    result.Error($"argument(s) {string.Join(", ", used.Select(u => "'" + u + "'"))} need 'character' (a .prefab path or \"{Placeholder}\")");
+                request.Character = null;
+                request.CharacterPlaced = null;
+                return;
+            }
+
+            if (characterArgument == Placeholder)
+            {
+                request.Character = Placeholder;
+                request.CharacterPlaced = Placeholder;
+                return;
+            }
+
+            var path = Verbs.DescribeVerb.ToProjectPath(characterArgument);
+            request.Character = path;
+            if (!path.EndsWith(".prefab", StringComparison.OrdinalIgnoreCase))
+            {
+                result.Error($"character '{characterArgument}' must be a .prefab path or \"{Placeholder}\"");
+                return;
+            }
+            if (AssetDatabase.LoadAssetAtPath<GameObject>(path) != null)
+            {
+                request.CharacterPlaced = path;
+                return;
+            }
+            if (File.Exists(VfxProjectPaths.ToFullPath(path)))
+            {
+                result.Error($"character '{characterArgument}' exists but is not a prefab Unity can load (is it imported?)");
+                return;
+            }
+            request.CharacterPlaced = Placeholder;
+            request.CharacterFallback = $"character prefab '{characterArgument}' does not exist; the capture places the built-in placeholder (VfxMannequin) instead";
+            result.Warning(request.CharacterFallback);
         }
 
         /// <summary>
@@ -294,6 +404,13 @@ namespace Cuvara.VFX.Editor.Capture
             { "columns", (long)Columns },
             { "recipe_path", RecipePath },
             { "recipe_sha256", RecipeSha256 },
+            { "character", Character },
+            { "character_placed", CharacterPlaced },
+            { "character_fallback", CharacterFallback },
+            { "target_count", (long)TargetCount },
+            { "target_spacing", TargetSpacing },
+            { "source_socket", SourceSocket },
+            { "target_socket", TargetSocket },
         };
 
         /// <summary>The request written by <see cref="ToJson"/>.</summary>
@@ -318,6 +435,13 @@ namespace Cuvara.VFX.Editor.Capture
                 Columns = (int)Number("columns"),
                 RecipePath = json.Get("recipe_path") as string,
                 RecipeSha256 = json.Get("recipe_sha256") as string,
+                Character = json.Get("character") as string,
+                CharacterPlaced = json.Get("character_placed") as string,
+                CharacterFallback = json.Get("character_fallback") as string,
+                TargetCount = json.Get("target_count") == null ? 0 : (int)Number("target_count"),
+                TargetSpacing = json.Get("target_spacing") == null ? DefaultTargetSpacing : Number("target_spacing"),
+                SourceSocket = json.Get("source_socket") as string ?? DefaultSourceSocket,
+                TargetSocket = json.Get("target_socket") as string ?? DefaultTargetSocket,
             };
         }
     }

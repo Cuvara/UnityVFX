@@ -117,6 +117,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `aliveParticleCount` only every 60 frames, so counts are exact and never -1. The verb returns a
   pending result and finishes after the domain reload of play mode (`VfxCaptureJob`); in batch mode
   the job writes `-vfxOut` and exits the editor.
+- `capture` places optional characters (`VfxCaptureCast`): `character` (a prefab path, or
+  `placeholder` for the code-built `VfxMannequin`), `target_count` (0 to 8), `target_spacing`
+  (default 3.5 m), `source_socket` (default `hand_r`) and `target_socket` (default `chest`). The
+  caster and the targets stand in a lane along +X centred on the effect's origin, their Animators
+  evaluated once at time 0 and then disabled. Every `ChainLightningBinder` of the effect is bound to
+  the caster's source socket and the targets' sockets before the first simulation step; a `.vfx`
+  whose graph exposes the binder's default properties gets a binder. A prefab path that does not
+  exist places the placeholder with a warning. Without `character` a capture places nothing, as
+  before.
 
 #### Schemas, fixture and tests
 
@@ -124,6 +133,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `vfx-describe.schema.json`, `vfx-inspect.schema.json` and `vfx-capture.schema.json`.
 - Fixture `Tests/Fixtures/BurstQuads`: `BurstQuads.vfxrecipe.json` and the `BurstQuads.vfx` it
   builds (one burst of 24 additive quads with a colour over life and an exposed `Tint` colour).
+- Fixture `Tests/Fixtures/ChainTargets`: exposes `SourcePosition`, `TargetPosition0` to
+  `TargetPosition7` and `HopCount` (the `ChainLightningBinder` defaults) and draws one burst of 48
+  additive quads on the line from `SourcePosition` to `TargetPosition7`.
+- EditMode tests `CaptureCastTests`: parsing of the character inputs with every error, the
+  placeholder fallback, the job round trip, and a capture with a stand-in prefab built by the test
+  and 3 targets on `ChainTargets` (lane positions, bound positions and hop count read back from the
+  graph, files, the schema, equal counts for one seed twice, and a missing prefab that places the
+  placeholder).
 - EditMode test assembly `Cuvara.VFX.Editor.Tests`: the internals guard, the envelope and batch
   entry, catalog and describe determinism, recipe round trip and unknown names, coverage of every op
   field (`RecipeCoverageTests`), the recipe schema, texture import determinism and failure cases,
@@ -187,8 +204,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `CaptureTests.SameSeedTwice_GivesTheSamePeak_NoMinusOne_AndAllFiles` is reported as Ignored,
   with the reason, when the editor has no graphics device or no compute shader support
   (Documentation~/CI.md, "GPU tests").
+- The capture stage uses the grid materials of `Library/Grid` for its ground (now 80 m) and its
+  backdrop (now 80 by 20 m, 6 m behind the origin instead of 8 m), and applies lighting and camera
+  through `VfxLightingRig.Apply` and `VfxCameraRig.Place`, the code the Showcase uses.
+  `VfxCaptureStage.GroundAlbedo` and `BackdropAlbedo` are removed (they were documented as linear but
+  are sRGB material values); `GroundMaterialPath` and `BackdropMaterialPath` name the materials. The
+  frames of every capture change (CAPTURE.md has the new mean luminance figures); counts do not.
+- The `night` lighting preset's key light heading is -45 degrees instead of 30, so it lights the
+  front of the backdrop in every camera preset (the Showcase uses the same value).
+- `stats.json` has two optional fields, `characters` (null without characters) and `binders` (empty
+  without a bound binder); every existing field keeps its name and meaning, and
+  `Schemas~/vfx-capture.schema.json` lists both (not required, so earlier files stay valid).
+- `vfxcli.py` rewrites the `character` path argument too: a path inside `Samples~/Showcase` becomes
+  `Assets/Showcase/...` (where the Sandbox sees the sample) for every path argument, and the keyword
+  `placeholder` is passed unchanged.
 
 ### Fixed
+
+- Every cell of a capture contact sheet showed a brown band at the top and a ground with no
+  readable surface: the gameplay frame saw only a 1 m strip of an untextured backdrop 8 m away, lit
+  orange by the dusk key more brightly than the ground. The stage now has the grid ground and a grid
+  wall 6 m away, so the frame reads as a floor with a wall behind it in every camera and lighting
+  preset.
+- With the `night` preset and the `side` camera the backdrop faced away from the key light and
+  rendered near black; the night key now comes from the same side as the day and dusk keys.
 
 - A built graph and a new subgraph were saved at resource version 0, so VFX Graph converted every
   gradient colour key with `Color.linear` at each compile, and `describe` did not match the
