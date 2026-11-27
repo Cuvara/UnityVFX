@@ -1247,6 +1247,46 @@ Each entry is a verified failure: symptom, cause, fix, file.
   it checks; the same holds for `VfxMannequin` and its material.
 - **File:** `Tests/Runtime/VfxRigTests.cs`, `Tests/Runtime/VfxMannequinTests.cs`.
 
+### A chain lane along X filled the `side` frame with its last target
+
+- **Symptom:** the first Showcase lane stood along +X (caster at -5.25 m, targets at -1.75, 1.75 and
+  5.25 m from the station). The `side` frame of that station showed the back of the last target from
+  1.7 m, filling the frame, and nothing of the chain
+  (`Sandbox~/Captures/pkg-showcase/showcase-scene/t4-dusk-side-1.png`, gitignored).
+- **Cause:** the camera presets have fixed headings: `gameplay` and `close` look along +Z, `side`
+  along -X from 7 m on +X. A row along X is broadside to `gameplay` but in line with `side`, and its
+  last character stands between the `side` camera and the rest; a row along Z hides its first
+  character below the `gameplay` frame instead.
+- **Fix:** the lane and the single-target station are turned -30 degrees about Y, so their rows run
+  diagonally, and the lane's row is centred 1.2 m behind the station's focus. `gameplay` frames all
+  four characters clear of the panel, `side` looks along the row at the targets' backs and the
+  caster's front with the chain between them (`t8-*-side-1.png`). No preset value changed.
+- **File:** `Samples~/Showcase/Showcase.unity` (`Station 1 - Chain lightning lane`,
+  `Station 2 - Single target`).
+
+### A `VfxPlayer`'s library set by a script was missing in the saved scene
+
+- **Symptom:** the Showcase scene, built in one `script-execute` snippet that created
+  `ShowcaseLibrary.asset` and then set `player.Library` before `EditorSceneManager.SaveScene`, played
+  with `VfxPlayer: no library; cannot play 'burst-quads'` at every station interval; the saved scene
+  had no `library` reference.
+- **Cause:** not established. Setting `Library` on a new player in edit mode, in a separate snippet,
+  keeps the reference (read back through `SerializedObject`).
+- **Fix:** set the field through `SerializedObject.FindProperty("library")`, save the scene, and check
+  the saved file (`library: {fileID: 11400000, guid: ...}`) before playing.
+- **File:** `Samples~/Showcase/Showcase.unity` (`VFX Player`).
+
+### `tests-run` refused to start with an unsaved scene
+
+- **Symptom:** `unity-mcp-cli run-tool tests-run` answered `Cannot run tests: 1 open scene(s) have
+  unsaved changes: 'Showcase' (Assets/Showcase/Showcase.unity)`, although saving the scene again
+  changed no byte of the file.
+- **Cause:** the scene was marked dirty (after a script reload) without a change to its content;
+  the tool refuses any dirty open scene.
+- **Fix:** save the scene, or open a new empty scene (`EditorSceneManager.NewScene`) before
+  `tests-run`; the smoke tests load the Showcase themselves.
+- **File:** none (workflow).
+
 ### Other observations
 
 - In the Sandbox, with the night preset (key heading 30 degrees), a wall that faces +X is lit from
@@ -1293,6 +1333,21 @@ Each entry is a verified failure: symptom, cause, fix, file.
   into a scratch folder, 32 of them import with `Missing Nested Prefab Asset` errors and hold no
   `VisualEffect`; `inspect` reports `has no VisualEffect component`, which is right. Their import
   errors stay in the console buffer after the scratch folder is deleted: restart the editor.
+- `ScreenCapture.CaptureScreenshot` from `script-execute` in play mode wrote a fully black 1920x1080
+  PNG (27,260 bytes) for 3 of about 35 Game View screenshots of the Showcase (no overlay either); the
+  same call a few seconds later wrote the frame. Look at every screenshot before you use it.
+- `Light.shadowResolution` warns `Light.shadowResolution is compatible only with the Built-In Render
+  Pipeline.` when it is set in a URP project; URP takes the main light's shadow resolution from the
+  pipeline asset. The Showcase leaves it at its default.
+- The test characters' idle (`VfxTestCharacter_Idle.anim`, the Universal Animation Library's
+  `Armature|Idle_Loop`, the controller's default and only state) is a wide, staggered stance: the feet
+  stand about 0.6 m apart, one forward and one back, and the body is turned about 17 degrees from the
+  spawn point's forward. The muscle curves hold it through the whole 2.5 s loop (right upper leg
+  front-back 0.75 to 0.84, left 0.22 to 0.32), so the first frame is representative. A re-import of
+  the archive's FBX with Bake Axis Conversion on (Quaternius's Unity setup) gave the same muscle values;
+  a Generic import was tried too, but whether its curves bound was not established. The other idles
+  of the archive are `Idle_Talking_Loop`, `Idle_Torch_Loop`, `Pistol_Idle_Loop`,
+  `Spell_Simple_Idle_Loop`, `Sword_Idle` and crouch, sit and swim idles.
 - `describe_sha256` (in the results of `build`, `apply` and `inspect`) is the SHA-256 of the compact
   JSON `VfxCli.Run("describe")` returns. vfxcli.py prints and writes indented JSON, so the SHA-256 of
   a `vfxcli.py describe --out` file is a different number: compare `describe_sha256` values, not
@@ -1313,7 +1368,8 @@ scripts read these formats.
    gradients and textures there; none exists yet. `Effects/` holds only `README.md` (the layout of
    one effect): no effect exists yet, and each folder holds a file because git tracks no empty
    folder and `check_metas.py` fails on a folder `.meta` without a Unity-visible file.
-   `Samples~/Showcase/` and `Documentation~/SHOWCASE.md` are built by the rest of the Showcase task
+   `Samples~/Showcase/` holds the scene, its scripts, library, materials and the test characters
+   (items 47 to 49); `Documentation~/SHOWCASE.md` is written by the rest of the Showcase task
    (pkg-showcase). Proof: the repository tree (`git ls-files`).
 2. More folders than DESIGN lists: `Editor/` is split into `Cli/`, `Verbs/`, `Recipe/`, `Texture/`,
    `Inspect/`, `Capture/` (the bridge stays alone in `Editor/Bridge/`); `Runtime/Presets/` holds the
@@ -1504,3 +1560,20 @@ scripts read these formats.
 46. The game-ci jobs open a copy of `Sandbox~` at `sandbox-home/Sandbox` next to the checkout at
     `sandbox-home/package`, not `Sandbox~` itself (Unity 6000.6 and `file:../../package`). Proof:
     `.github/workflows/ci.yml`, `.github/scripts/ci_sandbox.py`, CI.md.
+
+### Showcase
+
+47. The test characters are not part of the scene: each character place is a
+    `ShowcaseCharacterSpawn` that instantiates its prefab in play mode, and places the code-built
+    `VfxMannequin` (five sockets) with one information line when the prefab reference is empty or the
+    model is missing, so the scene works without `Samples~/Showcase/Characters`. DESIGN has the
+    characters in the scene. Proof: `Samples~/Showcase/Scripts/ShowcaseCharacterSpawn.cs`,
+    `Sandbox~/Assets/Tests/ShowcaseSmokeTests.cs`.
+48. Until real effects exist, the stations play the test fixtures `chain-targets` and `burst-quads`
+    (`Tests/Fixtures`, referenced by the prefabs in `Samples~/Showcase/Effects/`, listed in
+    `ShowcaseLibrary.asset`); the pedestal has no effect. The overlay sets the effect of the selected
+    station. Proof: `Samples~/Showcase/ShowcaseLibrary.asset`, `Samples~/Showcase/README.md`.
+49. The sample has its own assembly, `Cuvara.VFX.Samples.Showcase` (references only `Cuvara.VFX`),
+    and the stations' rows run diagonally (-30 degrees) so the fixed `side` preset does not look down
+    a row (Pitfalls). Proof: `Samples~/Showcase/Scripts/Cuvara.VFX.Samples.Showcase.asmdef`,
+    `Samples~/Showcase/Showcase.unity`.

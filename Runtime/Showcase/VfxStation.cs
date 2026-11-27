@@ -189,9 +189,15 @@ namespace Cuvara.VFX
         /// Plays the effect now and binds a <see cref="ChainLightningBinder"/> of the instance to the
         /// anchor and the targets.
         /// </summary>
-        /// <returns>The handle, or <see cref="VfxHandle.None"/> when there is no player or the play failed (the player logs why).</returns>
+        /// <remarks>
+        /// A station without an effect (<see cref="EffectId"/> null or empty) is silent: it returns
+        /// <see cref="VfxHandle.None"/> and logs nothing, so an empty slot of the Showcase does not log
+        /// at every trigger.
+        /// </remarks>
+        /// <returns>The handle, or <see cref="VfxHandle.None"/> when the station has no effect, there is no player or the play failed (the player logs why).</returns>
         public VfxHandle PlayNow()
         {
+            if (string.IsNullOrEmpty(effectId)) return VfxHandle.None;
             if (player == null) player = FindAnyObjectByType<VfxPlayer>();
             if (player == null)
             {

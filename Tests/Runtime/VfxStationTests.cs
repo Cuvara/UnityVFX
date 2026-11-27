@@ -123,6 +123,26 @@ namespace Cuvara.VFX.Tests
         }
 
         [UnityTest]
+        public IEnumerator WithoutAnEffect_TheIntervalTriggerStaysSilent()
+        {
+            // No player at all either: an empty slot must not even look for one.
+            player.gameObject.SetActive(false);
+            VfxStation station = Station(null, VfxStationTrigger.Interval);
+            station.Player = null;
+            station.LoopInterval = 0.05f;
+            station.ResetTimer();
+            float start = Time.time;
+            while (Time.time - start < 0.2f) yield return null;
+
+            Assert.IsFalse(station.PlayNow().IsValid);
+            station.EffectId = string.Empty;
+            Assert.IsFalse(station.PlayNow().IsValid);
+            Assert.AreEqual(0, station.PlayCount);
+            Assert.IsNull(station.Player, "a station without an effect does not look up a player");
+            LogAssert.NoUnexpectedReceived();
+        }
+
+        [UnityTest]
         public IEnumerator IntervalTrigger_PlaysOnEnable_ThenEveryInterval()
         {
             VfxStation station = Station(Spark, VfxStationTrigger.Interval);

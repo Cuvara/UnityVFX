@@ -24,6 +24,13 @@
   "testables": [
     "com.cuvara.vfx"
   ],
+  "samples": [
+    {
+      "displayName": "Showcase",
+      "description": "A grey grid room with four effect stations (a chain-lightning lane, a single target, a ground area, an empty pedestal), rigged test characters with VFX sockets (or a placeholder mannequin when no model is present), lighting presets day, dusk and night shared with the capture stage, and a play-mode overlay to pick and replay an effect, change the time scale, the lighting and the camera preset.",
+      "path": "Samples~/Showcase"
+    }
+  ],
   "files": [
     "*",
     "!Sandbox~"

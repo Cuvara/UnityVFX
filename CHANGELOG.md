@@ -72,6 +72,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   0.36, lines 0.14), the same albedo values as the capture stage's ground and backdrop.
 - `Effects/README.md`: the folder layout of one effect; no effect exists yet.
 
+#### Showcase sample (`Samples~/Showcase`, listed in `package.json` `samples`)
+
+- `Showcase.unity`: a grey grid room (floor and 10 m walls in the `Library/Grid` materials, 24 by 68 m,
+  no skybox) with four `VfxStation`s in a row along +Z, 14 m apart: a chain-lightning lane (a caster
+  and three targets 3.25 m apart on a diagonal row, anchored on the caster's `hand_r`, targets on their
+  `chest`), a single-target station (a caster and one target 3 m apart), a ground area station (a
+  5 m disc on the floor) and an empty pedestal. A `VfxLightingRig` drives a soft-shadowed directional
+  key, a fill, the trilight ambient and a global Volume (Bloom, ACES, vignette, post exposure) with
+  `dusk` as the saved default; a `VfxCameraRig` places the camera.
+- Characters are not baked into the scene: each character place is a `ShowcaseCharacterSpawn` that
+  instantiates its prefab in play mode, or the placeholder `VfxMannequin` (five sockets, one
+  information line in the console) when the reference is empty or the model is missing, so the scene
+  opens and plays without `Characters/`.
+- `ShowcaseOverlay` (play mode, IMGUI): select a station (1-4, Tab), step its effect through the
+  `VfxLibrary` (Q, E), replay (Space), time scale 0.1 to 2 (T), lighting preset (L), camera preset
+  around the selected station (C), hide the panel (H); station labels in the Game View. It applies
+  presets only through `VfxLightingPreset.Get` and `VfxCameraPreset.Get` with the shared rigs and reads
+  keys through `VfxStation.WasPressedThisFrame`, so the assembly `Cuvara.VFX.Samples.Showcase`
+  (references only `Cuvara.VFX`) compiles with the Input System, the legacy Input Manager or both.
+- `ShowcaseLibrary.asset` with the fixtures `chain-targets` (lane) and `burst-quads` (single target
+  and ground area), referenced from `Tests/Fixtures` by two prefabs in `Effects/`, not copied; a
+  `VolumeProfile` with the `dusk` values for the edit-mode look; two URP Lit materials (area marker,
+  pedestal); a README.
+
 #### Editor
 
 - Bridge assembly `Unity.Testing.VisualEffectGraph.Editor` (the name VFX Graph 17.6 lets see its
@@ -154,6 +178,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   nothing left after the root is destroyed). The test asmdef gets the same `Unity.InputSystem`
   reference and version define as the runtime.
 
+- PlayMode smoke tests of the Showcase in the Sandbox (`Sandbox~/Assets/Tests`, assembly
+  `Cuvara.VFX.Sandbox.ShowcaseTests`, no compile reference to the sample): the scene loads and plays
+  with no error, its four stations and the lane geometry, five sockets on every character, the
+  overlay's lighting and camera presets equal to the shared preset data, alive particles at the
+  fixture station, and the placeholder of a spawn point without a prefab. Ignored, with the reason,
+  when `Assets/Showcase` is absent; the particle test also without a graphics device or compute
+  shaders. The CI project gets a copy of the sample (`ci_sandbox.py`), so they run there too.
+
 #### Sandbox and tools
 
 - Agent-owned `Sandbox~` Unity project (6000.6.9f1): URP 17.6.0 with HDR, Forward+, depth and
@@ -218,6 +250,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `vfxcli.py` rewrites the `character` path argument too: a path inside `Samples~/Showcase` becomes
   `Assets/Showcase/...` (where the Sandbox sees the sample) for every path argument, and the keyword
   `placeholder` is passed unchanged.
+
+- `VfxStation.PlayNow` returns `VfxHandle.None` without logging and without looking up a player when
+  the station has no effect id, so an empty station with the `Interval` trigger stays silent instead
+  of logging an error at every interval.
+- The Sandbox URP asset (`Sandbox~/Assets/Settings/Sandbox_URP.asset`) supports soft shadows, which
+  the presets' key light asks for (`LightShadows.Soft`); URP renders soft shadows only when the asset
+  supports them.
 
 ### Fixed
 
